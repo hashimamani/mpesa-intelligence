@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "M-Pesa Intelligence",
+    "slug": "mpesa-intelligence",
+    "scheme": "mpesa-intelligence",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mpesaintelligence.app"
+    },
+    "android": {
+      "package": "com.mpesaintelligence.app"
+    },
+    "plugins": ["expo-router"]
+  }
+}
