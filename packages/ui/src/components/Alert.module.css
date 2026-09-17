@@ -1,0 +1,73 @@
+.alert {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: flex-start;
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+}
+
+.icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.description {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.info {
+  background: var(--color-info-bg);
+  border-color: var(--color-info);
+}
+.info .icon {
+  background: var(--color-info);
+  color: var(--color-neutral-0);
+}
+
+.success {
+  background: var(--color-success-bg);
+  border-color: var(--color-success);
+}
+.success .icon {
+  background: var(--color-success);
+  color: var(--color-neutral-0);
+}
+
+.warning {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning);
+}
+.warning .icon {
+  background: var(--color-warning);
+  color: var(--color-neutral-0);
+}
+
+.danger {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger);
+}
+.danger .icon {
+  background: var(--color-danger);
+  color: var(--color-neutral-0);
+}

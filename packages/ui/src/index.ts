@@ -1,6 +1,17 @@
-// Shared design system (tokens + primitives: buttons, inputs, cards, charts, etc.).
-// Deliberately empty at Stage 2 — populated at Stage 3 per docs/09-testing-deployment-strategy.md.
-// Kept as a real workspace package now so apps/web, apps/mobile, and apps/admin can
-// depend on it from day one instead of each growing its own component library.
+// Shared design system: tokens + primitives. Import "tokens.css" once, globally,
+// in each app (see apps/web/app/globals.css) — components here reference its
+// custom properties rather than hardcoded values.
+export * from "./tokens";
 
-export {};
+export * from "./components/Button";
+export * from "./components/Input";
+export * from "./components/Card";
+export * from "./components/Badge";
+export * from "./components/Alert";
+export * from "./components/Spinner";
+export * from "./components/Skeleton";
+export * from "./components/EmptyState";
+export * from "./components/Table";
+export * from "./components/Dialog";
+export * from "./components/AppShell";
+export * from "./components/ProcessingSteps";

@@ -31,6 +31,7 @@ explicit answer from the product owner before those stages begin in earnest.
 9. [09-testing-deployment-strategy.md](docs/09-testing-deployment-strategy.md) — testing pyramid, CI/CD, staged rollout
 10. [10-risks-and-decisions.md](docs/10-risks-and-decisions.md) — major risks and decisions that need sign-off
 11. [11-development.md](docs/11-development.md) — how to run this repo locally
+12. [12-design-system.md](docs/12-design-system.md) — visual language, tokens, and component set
 
 ## What this repository deliberately does not include (yet)
 

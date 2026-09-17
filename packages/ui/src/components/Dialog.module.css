@@ -1,0 +1,48 @@
+.dialog {
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 0;
+  box-shadow: var(--shadow-lg);
+  width: min(480px, calc(100vw - 2 * var(--spacing-2xl)));
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.dialog::backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-2xl) var(--spacing-2xl) var(--spacing-lg);
+}
+
+.title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+}
+
+.closeButton:hover {
+  background: var(--color-neutral-100);
+  color: var(--color-text);
+}
+
+.body {
+  padding: 0 var(--spacing-2xl) var(--spacing-2xl);
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary);
+}
