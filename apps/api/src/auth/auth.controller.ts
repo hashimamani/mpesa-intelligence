@@ -1,14 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  Post,
-  Req,
-  Res,
-  UseGuards,
-  UsePipes,
-} from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import {
@@ -54,25 +44,24 @@ export class AuthController {
   // protection per docs/05-security-threat-model.md.
   @Post("register")
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @UsePipes(new ZodValidationPipe(registerSchema))
-  async register(@Body() body: RegisterInput): Promise<{ user: AuthUserDTO }> {
+  async register(@Body(new ZodValidationPipe(registerSchema)) body: RegisterInput): Promise<{ user: AuthUserDTO }> {
     return this.auth.register(body.email, body.password);
   }
 
   @Post("verify-email")
-  @UsePipes(new ZodValidationPipe(verifyEmailSchema))
   @HttpCode(200)
-  async verifyEmail(@Body() body: VerifyEmailInput): Promise<{ verified: true }> {
+  async verifyEmail(
+    @Body(new ZodValidationPipe(verifyEmailSchema)) body: VerifyEmailInput,
+  ): Promise<{ verified: true }> {
     await this.auth.verifyEmail(body.token);
     return { verified: true };
   }
 
   @Post("login")
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @UsePipes(new ZodValidationPipe(loginSchema))
   @HttpCode(200)
   async login(
-    @Body() body: LoginInput,
+    @Body(new ZodValidationPipe(loginSchema)) body: LoginInput,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ accessToken: string; user: AuthUserDTO }> {
@@ -86,10 +75,9 @@ export class AuthController {
   }
 
   @Post("refresh")
-  @UsePipes(new ZodValidationPipe(refreshTokenSchema))
   @HttpCode(200)
   async refresh(
-    @Body() body: RefreshTokenInput,
+    @Body(new ZodValidationPipe(refreshTokenSchema)) body: RefreshTokenInput,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ accessToken: string }> {
@@ -119,17 +107,19 @@ export class AuthController {
 
   @Post("forgot-password")
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @UsePipes(new ZodValidationPipe(forgotPasswordSchema))
   @HttpCode(200)
-  async forgotPassword(@Body() body: ForgotPasswordInput): Promise<{ ok: true }> {
+  async forgotPassword(
+    @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
+  ): Promise<{ ok: true }> {
     await this.auth.forgotPassword(body.email);
     return { ok: true };
   }
 
   @Post("reset-password")
-  @UsePipes(new ZodValidationPipe(resetPasswordSchema))
   @HttpCode(200)
-  async resetPassword(@Body() body: ResetPasswordInput): Promise<{ ok: true }> {
+  async resetPassword(
+    @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
+  ): Promise<{ ok: true }> {
     await this.auth.resetPassword(body.token, body.newPassword);
     return { ok: true };
   }

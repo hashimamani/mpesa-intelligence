@@ -30,10 +30,11 @@ npm run prisma:migrate --workspace=@mpesa/api   # creates/updates the schema (Po
 Then, in separate terminals:
 
 ```bash
-npm run dev --workspace=@mpesa/api      # http://localhost:4000
-npm run dev --workspace=@mpesa/web      # http://localhost:3000
-npm run dev --workspace=@mpesa/admin    # http://localhost:3001
-npm run dev --workspace=@mpesa/mobile   # Expo dev server
+npm run dev --workspace=@mpesa/api          # http://localhost:4000
+npm run worker:dev --workspace=@mpesa/api   # statement-processing worker — separate process, see docs/14
+npm run dev --workspace=@mpesa/web          # http://localhost:3000
+npm run dev --workspace=@mpesa/admin        # http://localhost:3001
+npm run dev --workspace=@mpesa/mobile       # Expo dev server
 ```
 
 Verify the API is actually talking to Postgres and Redis (not just that the

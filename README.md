@@ -3,24 +3,26 @@
 A commercial-grade financial analytics platform that turns an M-Pesa statement into
 a clear picture of how money moves — for individuals and for businesses.
 
-## Status: Stage 4 — Authentication
+## Status: Stage 5 — Statement upload
 
 Phase 0 (discovery) is done — see `/docs`. Stage 2 produced a real, buildable
-monorepo (`apps/api` NestJS, `apps/web`/`apps/admin` Next.js, `apps/mobile`
-Expo, shared `packages/*`, local dev infra via `docker-compose.yml`). Stage 3
-added a real design system (`packages/ui`: tokens + components, see
-[docs/12-design-system.md](docs/12-design-system.md)). Stage 4 (this one)
-added a full backend auth system — registration, email verification, login,
-refresh-token rotation with reuse detection, logout, and password reset —
-backed by Postgres via Prisma, tested end-to-end against a real database, not
-mocks. See [docs/13-auth-architecture.md](docs/13-auth-architecture.md) for
-what was decided and why, and [docs/11-development.md](docs/11-development.md)
-to run it.
+monorepo; Stage 3 added a real design system (`packages/ui`); Stage 4 added a
+full backend auth system (Prisma/Postgres-backed, tested end-to-end against a
+real database). Stage 5 (this one) adds statement upload end-to-end: presigned
+S3/MinIO uploads, a Postgres-backed `Statement`/`StatementProcessingJob`
+model, a BullMQ/Redis job queue with a separate worker process, real (if
+basic — see below) PDF validation, and a working login/register/upload UI in
+`apps/web` wired to all of it. See
+[docs/14-statement-upload.md](docs/14-statement-upload.md) for what was
+decided, and the real bugs found and fixed by actually testing each piece —
+including in a live browser, not just via curl/unit tests. See
+[docs/11-development.md](docs/11-development.md) to run it.
 
-No login/register UI exists yet — this stage is the API. Items flagged in
-[10-risks-and-decisions.md](docs/10-risks-and-decisions.md) still need an
-explicit answer from the product owner before production-facing stages (11+)
-begin in earnest.
+The upload pipeline stops at "confirmed this is a real, readable PDF" —
+no M-Pesa-specific extraction, categorization, or analytics yet (Stage 6+).
+Items flagged in [10-risks-and-decisions.md](docs/10-risks-and-decisions.md)
+still need an explicit answer from the product owner before production-facing
+stages (11+) begin in earnest.
 
 ## Reading order
 
@@ -37,6 +39,7 @@ begin in earnest.
 11. [11-development.md](docs/11-development.md) — how to run this repo locally
 12. [12-design-system.md](docs/12-design-system.md) — visual language, tokens, and component set
 13. [13-auth-architecture.md](docs/13-auth-architecture.md) — Prisma, token rotation, session model, email fallback
+14. [14-statement-upload.md](docs/14-statement-upload.md) — presigned uploads, BullMQ queue, worker, PDF validation
 
 ## What this repository deliberately does not include (yet)
 
@@ -44,8 +47,8 @@ begin in earnest.
   — `infrastructure/` contains placeholder Terraform, not working config (see its own README).
 - No app store (Apple/Google) developer accounts have been set up.
 - No payment/billing provider has been integrated or contracted.
-- No product features — auth, statement upload, categorization, dashboards — exist yet.
-  What exists is the scaffold: bootable apps, shared packages, and local dev infra.
+- No extraction, categorization, analytics, or dashboards exist yet — statement
+  upload (Stage 5) stops at "confirmed this is a real, readable PDF."
 
 These require real-world setup (accounts, credentials, legal review) that only
 the product owner can authorize. See [10-risks-and-decisions.md](docs/10-risks-and-decisions.md)

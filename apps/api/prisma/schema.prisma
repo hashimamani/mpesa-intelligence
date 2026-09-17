@@ -1,7 +1,7 @@
-// Auth-only schema for Stage 4. Organization/statement/transaction models
-// (docs/04-database-erd.md) are added when the stages that need them start
-// (Stage 5 statements, Stage 12 organizations) — no tables ahead of the
-// features that use them.
+// Auth + statement-upload schema (Stage 4 + Stage 5). Transaction/category/
+// organization models (docs/04-database-erd.md) are added when the stages
+// that need them start (Stage 6 extraction, Stage 12 organizations) — no
+// tables ahead of the features that use them.
 
 generator client {
   provider = "prisma-client-js"
@@ -10,6 +10,35 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+/// Statements are owned by either a user or (once Stage 12 adds them) an
+/// organization — ownerId is deliberately not an FK, since Postgres can't
+/// cleanly express a polymorphic reference to two different tables. Every
+/// query against Statement/StatementProcessingJob must filter on both
+/// ownerType and ownerId — see docs/04-database-erd.md §Tenant isolation
+/// enforcement.
+enum OwnerType {
+  user
+  organization
+}
+
+enum StatementStatus {
+  pending_upload
+  uploaded
+  processing
+  processed
+  failed
+  needs_review
+}
+
+enum ProcessingStage {
+  uploaded
+  reading_transactions
+  categorizing
+  calculating_analytics
+  generating_insights
+  complete
 }
 
 model User {
@@ -72,4 +101,54 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+/// One uploaded document. Stage 5 only ever sets status as far as
+/// uploaded/processing/failed via basic PDF sanity checks (open, has pages,
+/// has a text layer) — real extraction (processed/needs_review, periodStart/
+/// End, parserVersion) is Stage 6. See docs/06-statement-processing-architecture.md.
+model Statement {
+  id                  String           @id @default(uuid())
+  ownerType           OwnerType        @map("owner_type")
+  ownerId             String           @map("owner_id")
+  s3Key               String           @unique @map("s3_key")
+  originalFilename    String           @map("original_filename")
+  contentType         String           @map("content_type")
+  sizeBytes           Int              @map("size_bytes")
+  status              StatementStatus  @default(pending_upload)
+  /// S3's ETag for the uploaded object — a cheap, good-enough content
+  /// fingerprint for dedup without downloading the file server-side to hash
+  /// it ourselves. Null until upload is confirmed.
+  documentFingerprint String?          @map("document_fingerprint")
+  pageCount           Int?             @map("page_count")
+  periodStart         DateTime?        @db.Date @map("period_start")
+  periodEnd           DateTime?        @db.Date @map("period_end")
+  parserVersion       String?          @map("parser_version")
+  classificationVersion String?        @map("classification_version")
+  analyticsVersion    String?          @map("analytics_version")
+  insightVersion      String?          @map("insight_version")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  deletedAt           DateTime?        @map("deleted_at")
+
+  jobs StatementProcessingJob[]
+
+  @@unique([ownerType, ownerId, documentFingerprint])
+  @@index([ownerType, ownerId])
+  @@map("statements")
+}
+
+model StatementProcessingJob {
+  id          String          @id @default(uuid())
+  statementId String          @map("statement_id")
+  statement   Statement       @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  stage       ProcessingStage @default(uploaded)
+  startedAt   DateTime?       @map("started_at")
+  completedAt DateTime?       @map("completed_at")
+  errorCode   String?         @map("error_code")
+  retryCount  Int             @default(0) @map("retry_count")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@index([statementId])
+  @@map("statement_processing_jobs")
 }

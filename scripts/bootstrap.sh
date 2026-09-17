@@ -28,10 +28,14 @@ npm run prisma:migrate --workspace=@mpesa/api -- --name init
 cat <<'EOF'
 
 Done. Next steps:
-  npm run dev --workspace=@mpesa/api    # start the API on :4000
-  npm run dev --workspace=@mpesa/web    # start the web app on :3000
-  npm run dev --workspace=@mpesa/admin  # start the admin app on :3001
-  npm run dev --workspace=@mpesa/mobile # start Expo
+  npm run dev --workspace=@mpesa/api        # start the API on :4000
+  npm run worker:dev --workspace=@mpesa/api # start the statement-processing worker
+  npm run dev --workspace=@mpesa/web        # start the web app on :3000
+  npm run dev --workspace=@mpesa/admin      # start the admin app on :3001
+  npm run dev --workspace=@mpesa/mobile     # start Expo
+
+Uploaded statements won't finish processing without the worker running too —
+it's a separate process from the API (see docs/14-statement-upload.md).
 
 Check API health once it's running:
   curl http://localhost:4000/health

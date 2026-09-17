@@ -11,6 +11,8 @@ coverage/
 .env.*.local
 .DS_Store
 .Rhistory
+.idea/
+.vscode/
 *.tsbuildinfo
 .terraform/
 *.tfstate

@@ -15,6 +15,7 @@ export type SubscriptionStatus =
   | "expired";
 
 export type StatementStatus =
+  | "pending_upload"
   | "uploaded"
   | "processing"
   | "processed"
@@ -94,6 +95,7 @@ export interface StatementDTO {
   ownerType: OwnerType;
   status: StatementStatus;
   originalFilename: string;
+  pageCount: number | null;
   periodStart: string | null;
   periodEnd: string | null;
   createdAt: string;
@@ -104,6 +106,19 @@ export interface StatementProcessingJobDTO {
   statementId: string;
   stage: ProcessingStage;
   errorCode: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface StatementWithJobDTO {
+  statement: StatementDTO;
+  job: StatementProcessingJobDTO | null;
+}
+
+export interface UploadUrlResponseDTO {
+  statementId: string;
+  uploadUrl: string;
+  expiresAt: string;
 }
 
 export interface InsightDTO {
