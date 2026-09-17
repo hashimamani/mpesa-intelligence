@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
 import { statementUploadSchema, type StatementUploadInput } from "@mpesa/validation";
-import type { StatementDTO, StatementWithJobDTO, UploadUrlResponseDTO } from "@mpesa/types";
+import type { StatementDTO, StatementWithJobDTO, TransactionDTO, UploadUrlResponseDTO } from "@mpesa/types";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
@@ -47,5 +47,13 @@ export class StatementsController {
   @Get(":id")
   async get(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string): Promise<StatementWithJobDTO> {
     return this.statements.getStatement(ownerOf(user), id);
+  }
+
+  @Get(":id/transactions")
+  async listTransactions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ): Promise<TransactionDTO[]> {
+    return this.statements.listTransactions(ownerOf(user), id);
   }
 }

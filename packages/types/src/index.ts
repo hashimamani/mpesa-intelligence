@@ -73,11 +73,14 @@ export interface CategoryDTO {
   isActive: boolean;
 }
 
+export type TransactionDirection = "credit" | "debit";
+
 export interface TransactionDTO {
   id: string;
   statementId: string;
   transactionDate: string; // ISO 8601
   transactionType: TransactionType;
+  direction: TransactionDirection;
   amount: Money;
   fee: Money;
   balanceAfter: Money | null;
@@ -87,7 +90,8 @@ export interface TransactionDTO {
   subcategoryId: string | null;
   classificationConfidence: number | null;
   classificationSource: ClassificationSource | null;
-  referenceNumber: string | null;
+  referenceNumber: string;
+  isDuplicate: boolean;
 }
 
 export interface StatementDTO {
@@ -98,6 +102,7 @@ export interface StatementDTO {
   pageCount: number | null;
   periodStart: string | null;
   periodEnd: string | null;
+  transactionCount: number;
   createdAt: string;
 }
 

@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { StatementUploadInput } from "@mpesa/validation";
-import type { StatementWithJobDTO, UploadUrlResponseDTO, StatementDTO } from "@mpesa/types";
+import type { StatementWithJobDTO, UploadUrlResponseDTO, StatementDTO, TransactionDTO } from "@mpesa/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { S3Service } from "../storage/s3.service";
 import { StatementProcessingQueue } from "../queue/statement-processing.queue";
-import { toJobDTO, toStatementDTO } from "./statements.mapper";
+import { toJobDTO, toStatementDTO, toTransactionDTO } from "./statements.mapper";
 
 export interface OwnerContext {
   ownerType: "user" | "organization";
@@ -77,24 +77,37 @@ export class StatementsService {
 
     await this.queue.enqueue({ statementId: updated.id, jobId: job.id });
 
-    return { statement: toStatementDTO(updated), job: toJobDTO(job) };
+    return { statement: toStatementDTO(updated, 0), job: toJobDTO(job) };
   }
 
   async getStatement(owner: OwnerContext, statementId: string): Promise<StatementWithJobDTO> {
     const statement = await this.findOwned(owner, statementId);
-    const job = await this.prisma.statementProcessingJob.findFirst({
-      where: { statementId: statement.id },
-      orderBy: { createdAt: "desc" },
-    });
-    return { statement: toStatementDTO(statement), job: job ? toJobDTO(job) : null };
+    const [job, transactionCount] = await Promise.all([
+      this.prisma.statementProcessingJob.findFirst({
+        where: { statementId: statement.id },
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.transaction.count({ where: { statementId: statement.id } }),
+    ]);
+    return { statement: toStatementDTO(statement, transactionCount), job: job ? toJobDTO(job) : null };
   }
 
   async listStatements(owner: OwnerContext): Promise<StatementDTO[]> {
     const statements = await this.prisma.statement.findMany({
       where: { ownerType: owner.ownerType, ownerId: owner.ownerId, deletedAt: null },
       orderBy: { createdAt: "desc" },
+      include: { _count: { select: { transactions: true } } },
     });
-    return statements.map(toStatementDTO);
+    return statements.map((s) => toStatementDTO(s, s._count.transactions));
+  }
+
+  async listTransactions(owner: OwnerContext, statementId: string): Promise<TransactionDTO[]> {
+    await this.findOwned(owner, statementId); // ownership check before exposing anything
+    const transactions = await this.prisma.transaction.findMany({
+      where: { statementId, ownerType: owner.ownerType, ownerId: owner.ownerId },
+      orderBy: { transactionDate: "asc" },
+    });
+    return transactions.map(toTransactionDTO);
   }
 
   private async findOwned(owner: OwnerContext, statementId: string) {

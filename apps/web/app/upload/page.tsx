@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { StatementDTO, StatementWithJobDTO } from "@mpesa/types";
-import { AppShell, Alert, Badge, Button, Card, EmptyState, ProcessingSteps, Spinner } from "@mpesa/ui";
+import type { StatementDTO, StatementWithJobDTO, TransactionDTO } from "@mpesa/types";
+import { AppShell, Alert, Badge, Button, Card, EmptyState, ProcessingSteps, Spinner, Table, tableStyles } from "@mpesa/ui";
 import { useAuth } from "../../lib/auth-context";
 import { ApiError, statementsApi } from "../../lib/api";
 
@@ -15,6 +15,7 @@ export default function UploadPage() {
 
   const [statements, setStatements] = useState<StatementDTO[] | null>(null);
   const [active, setActive] = useState<StatementWithJobDTO | null>(null);
+  const [activeTransactions, setActiveTransactions] = useState<TransactionDTO[] | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -52,8 +53,22 @@ export default function UploadPage() {
       if (jobDone) {
         stopPolling();
         void refreshList();
+        if (result.statement.status !== "failed") {
+          setActiveTransactions(await statementsApi.listTransactions(accessToken, statementId));
+        }
       }
     }, POLL_INTERVAL_MS);
+  }
+
+  async function viewStatement(statementId: string) {
+    if (!accessToken) return;
+    stopPolling();
+    setUploadError(null);
+    const result = await statementsApi.get(accessToken, statementId);
+    setActive(result);
+    setActiveTransactions(
+      result.statement.status === "failed" ? null : await statementsApi.listTransactions(accessToken, statementId),
+    );
   }
 
   async function onFileSelected() {
@@ -63,6 +78,7 @@ export default function UploadPage() {
     setUploadError(null);
     setUploading(true);
     setActive(null);
+    setActiveTransactions(null);
     try {
       const { statementId, uploadUrl } = await statementsApi.requestUploadUrl(accessToken, {
         filename: file.name,
@@ -147,13 +163,54 @@ export default function UploadPage() {
                   description="Try uploading it again, or contact support."
                 />
               ) : null}
-              {active.statement.pageCount ? (
-                <span style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)" }}>
-                  Confirmed readable — {active.statement.pageCount} page
-                  {active.statement.pageCount === 1 ? "" : "s"}. Full extraction and analytics are built in a later
-                  stage.
-                </span>
+              {active.statement.status === "needs_review" ? (
+                <Alert
+                  tone="warning"
+                  title="We noticed something unusual in this statement"
+                  description="Some rows didn't extract cleanly or the running balance didn't add up. The transactions below are still shown for review."
+                />
               ) : null}
+            </div>
+          </Card>
+        ) : null}
+
+        {activeTransactions ? (
+          <Card>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <strong>{activeTransactions.length} transaction{activeTransactions.length === 1 ? "" : "s"} found</strong>
+              {activeTransactions.length === 0 ? (
+                <EmptyState title="No transactions extracted" />
+              ) : (
+                <Table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Description</th>
+                      <th>Type</th>
+                      <th className={tableStyles.numeric}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeTransactions.map((t) => (
+                      <tr key={t.id}>
+                        <td>{new Date(t.transactionDate).toLocaleDateString()}</td>
+                        <td>
+                          {t.merchantName ?? t.description}
+                          {t.isDuplicate ? (
+                            <Badge tone="warning" style={{ marginLeft: 8 }}>
+                              possible duplicate
+                            </Badge>
+                          ) : null}
+                        </td>
+                        <td>{t.transactionType.replaceAll("_", " ")}</td>
+                        <td className={tableStyles.numeric} style={{ color: t.direction === "credit" ? "var(--color-money-positive)" : "var(--color-money-neutral)" }}>
+                          {t.direction === "credit" ? "+" : "-"}KSh {t.amount.amount}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
             </div>
           </Card>
         ) : null}
@@ -172,10 +229,26 @@ export default function UploadPage() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {statements.map((s) => (
-                <Card key={s.id} padding="sm">
+                <Card
+                  key={s.id}
+                  padding="sm"
+                  interactive
+                  onClick={() => viewStatement(s.id)}
+                  style={{ cursor: "pointer" }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>{s.originalFilename}</span>
-                    <Badge tone={s.status === "failed" ? "danger" : "neutral"}>{s.status}</Badge>
+                    <span>
+                      {s.originalFilename}
+                      {s.transactionCount > 0 ? (
+                        <span style={{ color: "var(--color-text-secondary)", fontSize: "0.8125rem" }}>
+                          {" "}
+                          — {s.transactionCount} transaction{s.transactionCount === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+                    </span>
+                    <Badge tone={s.status === "failed" ? "danger" : s.status === "needs_review" ? "warning" : "neutral"}>
+                      {s.status}
+                    </Badge>
                   </div>
                 </Card>
               ))}

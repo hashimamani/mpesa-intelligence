@@ -3,6 +3,7 @@ import type {
   AuthUserDTO,
   StatementDTO,
   StatementWithJobDTO,
+  TransactionDTO,
   UploadUrlResponseDTO,
 } from "@mpesa/types";
 import type { StatementUploadInput } from "@mpesa/validation";
@@ -86,4 +87,7 @@ export const statementsApi = {
     apiFetch<StatementWithJobDTO>(`/statements/${statementId}`, { headers: withAuth(accessToken) }),
 
   list: (accessToken: string) => apiFetch<StatementDTO[]>("/statements", { headers: withAuth(accessToken) }),
+
+  listTransactions: (accessToken: string, statementId: string) =>
+    apiFetch<TransactionDTO[]>(`/statements/${statementId}/transactions`, { headers: withAuth(accessToken) }),
 };

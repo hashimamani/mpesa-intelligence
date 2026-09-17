@@ -54,17 +54,28 @@ async function registerVerifiedUser(app: INestApplication): Promise<{ accessToke
   return { accessToken: loginRes.body.accessToken as string };
 }
 
-/** A real, valid, synthetic PDF — never a real person's statement (docs/09 §Statement fixture testing). */
+/**
+ * A real, valid, synthetic PDF — never a real person's statement (docs/09
+ * §Statement fixture testing). Includes one row in the shape Stage 6's
+ * parser actually expects (see docs/15-extraction-engine.md) so this test
+ * exercises a genuine full-pipeline success, not just "the file opens."
+ * Deeper extraction coverage (multiple rows, reconciliation, duplicates,
+ * classification) lives in extraction.e2e-test.ts — this file stays focused
+ * on the upload mechanics themselves.
+ */
 async function buildValidPdfFixture(): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument();
+    // Narrower default margins avoid pdfkit line-wrapping a long row onto two
+    // baselines, which would otherwise break row reconstruction (found by
+    // actually running this against the real parser, not assumed) — matches
+    // extraction.e2e-test.ts's fixture builder.
+    const doc = new PDFDocument({ margin: 40 });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-    doc.fontSize(14).text("M-PESA STATEMENT (synthetic test fixture — not a real account)");
-    doc.text("Receipt No: TEST0000001  Completion Time: 2026-01-05 10:00:00");
-    doc.text("Details: Send Money to John Doe  Paid In: 0.00  Withdrawn: 500.00  Balance: 4,500.00");
+    doc.fontSize(10).text("M-PESA STATEMENT (synthetic test fixture — not a real account)");
+    doc.text("AA11111111 2026-01-05 10:00:00 Customer Transfer to JOHN DOE 254722000111 Completed 500.00 4500.00");
     doc.end();
   });
 }
@@ -115,8 +126,11 @@ test("full statement upload flow: request URL -> upload to S3 -> confirm -> proc
       .get(`/statements/${statementId}`)
       .set("Authorization", `Bearer ${accessToken}`);
     assert.equal(afterRes.status, 200);
-    assert.equal(afterRes.body.statement.status, "uploaded"); // not "processed" — Stage 6 does real extraction
+    // "processing", not "processed" — extraction succeeded, but categorization/
+    // analytics (Stage 7/8) haven't run, so the pipeline isn't fully done.
+    assert.equal(afterRes.body.statement.status, "processing");
     assert.equal(afterRes.body.statement.pageCount, 1);
+    assert.equal(afterRes.body.statement.transactionCount, 1);
     assert.equal(afterRes.body.job.stage, "reading_transactions");
     assert.ok(afterRes.body.job.completedAt);
     assert.equal(afterRes.body.job.errorCode, null);

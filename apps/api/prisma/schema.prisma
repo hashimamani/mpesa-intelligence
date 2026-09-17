@@ -41,6 +41,40 @@ enum ProcessingStage {
   complete
 }
 
+/// Not in docs/04's original field list — added here because Stage 6's own
+/// reconciliation logic (reconciliation.ts) already determines this
+/// unambiguously from the running-balance delta, and TransactionType alone
+/// can't reliably imply it (e.g. "other", "reversal"). Storing it now means
+/// Stage 8's analytics never has to re-derive direction heuristically.
+enum TransactionDirection {
+  credit
+  debit
+}
+
+enum TransactionType {
+  send_money
+  receive_money
+  pay_bill
+  buy_goods
+  withdraw
+  deposit
+  airtime
+  reversal
+  fee
+  other
+}
+
+/// classificationSource stays unset (null) until Stage 7's categorization
+/// engine runs — Stage 6 only sets transactionType (deterministic, part of
+/// normalization), never categoryId/subcategoryId.
+enum ClassificationSource {
+  rule
+  merchant
+  history
+  ai
+  user_correction
+}
+
 model User {
   id              String    @id @default(uuid())
   email           String    @unique
@@ -103,10 +137,11 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-/// One uploaded document. Stage 5 only ever sets status as far as
-/// uploaded/processing/failed via basic PDF sanity checks (open, has pages,
-/// has a text layer) — real extraction (processed/needs_review, periodStart/
-/// End, parserVersion) is Stage 6. See docs/06-statement-processing-architecture.md.
+/// One uploaded document. periodStart/End and parserVersion are set once
+/// Stage 6's real extraction runs. See docs/06-statement-processing-architecture.md
+/// and docs/15-extraction-engine.md for what "processing" vs "processed" vs
+/// "needs_review" actually mean at this stage (spoiler: no statement reaches
+/// "processed" yet — that requires categorization/analytics too, Stage 7/8).
 model Statement {
   id                  String           @id @default(uuid())
   ownerType           OwnerType        @map("owner_type")
@@ -131,7 +166,9 @@ model Statement {
   updatedAt           DateTime         @updatedAt @map("updated_at")
   deletedAt           DateTime?        @map("deleted_at")
 
-  jobs StatementProcessingJob[]
+  jobs         StatementProcessingJob[]
+  rawTransactions RawTransaction[]
+  transactions Transaction[]
 
   @@unique([ownerType, ownerId, documentFingerprint])
   @@index([ownerType, ownerId])
@@ -151,4 +188,64 @@ model StatementProcessingJob {
 
   @@index([statementId])
   @@map("statement_processing_jobs")
+}
+
+/// Exactly what the parser found for one row of the document, before any
+/// interpretation — immutable once written, kept separate from Transaction
+/// per docs/04-database-erd.md §Design rule 3. A row that failed to parse
+/// still gets a RawTransaction (parsed = false), so extraction failures are
+/// inspectable rather than silently dropped.
+model RawTransaction {
+  id          String    @id @default(uuid())
+  statementId String    @map("statement_id")
+  statement   Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  rowIndex    Int       @map("row_index")
+  rawText     String    @map("raw_text")
+  parsed      Boolean
+  parseError  String?   @map("parse_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([statementId])
+  @@map("raw_transactions")
+}
+
+/// Normalized, analytics-facing transaction. categoryId/subcategoryId/
+/// classificationSource are plain nullable columns, not yet FK relations —
+/// Stage 7 adds the Category table and migrates these into real relations.
+/// Deliberately denormalizes ownerType/ownerId from Statement (rather than
+/// requiring a join for every tenant-scoped query) — see docs/15's tenant
+/// isolation note for why.
+model Transaction {
+  id                      String                @id @default(uuid())
+  statementId             String                @map("statement_id")
+  statement               Statement             @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  ownerType               OwnerType             @map("owner_type")
+  ownerId                 String                @map("owner_id")
+  transactionDate         DateTime              @map("transaction_date")
+  transactionType         TransactionType       @map("transaction_type")
+  direction               TransactionDirection
+  /// NUMERIC, never float — see docs/03-architecture.md §Money handling.
+  amount                  Decimal               @db.Decimal(14, 2)
+  fee                     Decimal               @default(0) @db.Decimal(14, 2)
+  currency                String                @default("KES")
+  balanceAfter            Decimal?              @map("balance_after") @db.Decimal(14, 2)
+  description             String
+  rawDescription          String                @map("raw_description")
+  merchantName            String?               @map("merchant_name")
+  categoryId              String?               @map("category_id")
+  subcategoryId           String?               @map("subcategory_id")
+  classificationConfidence Float?               @map("classification_confidence")
+  classificationSource    ClassificationSource? @map("classification_source")
+  referenceNumber         String                @map("reference_number")
+  /// Set when this exact receipt number already exists for this owner from a
+  /// different statement (e.g. overlapping re-upload) — docs/06's duplicate
+  /// detection. The row is kept (visible, auditable) but flagged so Stage 8's
+  /// analytics can exclude it from totals.
+  isDuplicateOf           String?               @map("is_duplicate_of")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+
+  @@unique([statementId, referenceNumber])
+  @@index([ownerType, ownerId, transactionDate])
+  @@map("transactions")
 }
