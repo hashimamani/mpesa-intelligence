@@ -8,7 +8,14 @@
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "node --test --import tsx src/**/*.test.ts"
+    "test": "node --test --import tsx src/*.test.ts",
+    "test:e2e": "node --env-file=../../.env --require ts-node/register --test test/*.e2e-test.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
   },
   "dependencies": {
     "@mpesa/config": "*",
@@ -17,17 +24,33 @@
     "@mpesa/validation": "*",
     "@nestjs/common": "^10.4.4",
     "@nestjs/core": "^10.4.4",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.4.4",
+    "@nestjs/throttler": "^6.2.1",
+    "@prisma/client": "^5.20.0",
+    "argon2": "^0.41.1",
+    "cookie-parser": "^1.4.7",
     "ioredis": "^5.4.1",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
     "pg": "^8.13.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.5",
+    "@nestjs/testing": "^10.4.4",
+    "@types/cookie-parser": "^1.4.7",
     "@types/express": "^4.17.21",
     "@types/node": "^20.16.11",
+    "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.11.10",
+    "@types/supertest": "^6.0.2",
+    "prisma": "^5.20.0",
+    "supertest": "^7.0.0",
+    "ts-node": "^10.9.2",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3"
   }

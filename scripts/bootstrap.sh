@@ -22,6 +22,9 @@ npm run dev:services
 echo "Building workspace packages ..."
 npm run build --workspace=@mpesa/types --workspace=@mpesa/financial --workspace=@mpesa/validation --workspace=@mpesa/config --workspace=@mpesa/ui
 
+echo "Applying database migrations ..."
+npm run prisma:migrate --workspace=@mpesa/api -- --name init
+
 cat <<'EOF'
 
 Done. Next steps:

@@ -1,0 +1,75 @@
+// Auth-only schema for Stage 4. Organization/statement/transaction models
+// (docs/04-database-erd.md) are added when the stages that need them start
+// (Stage 5 statements, Stage 12 organizations) — no tables ahead of the
+// features that use them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  refreshTokens           RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+
+  @@map("users")
+}
+
+/// One row per issued refresh token — this is the "session" in docs/05's
+/// session/device management requirement. Only the hash is stored (never the
+/// raw token, same principle as passwordHash); revoking a session sets
+/// revokedAt instead of deleting the row, so a reused, already-rotated token
+/// can be detected as a reuse/theft signal rather than just failing silently.
+model RefreshToken {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash           String    @unique @map("token_hash")
+  userAgent           String?   @map("user_agent")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  expiresAt           DateTime  @map("expires_at")
+  revokedAt           DateTime? @map("revoked_at")
+  replacedByTokenHash String?   @map("replaced_by_token_hash")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}

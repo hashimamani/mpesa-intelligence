@@ -24,6 +24,7 @@ cp .env.example .env
 npm install
 npm run dev:services        # docker-compose up: postgres, redis, minio
 npm run build                # builds packages/* (apps depend on their dist output)
+npm run prisma:migrate --workspace=@mpesa/api   # creates/updates the schema (Postgres must be up first)
 ```
 
 Then, in separate terminals:
@@ -89,3 +90,12 @@ Test coverage grows with each subsequent stage per
   don't "fix" `DATABASE_URL` back to 5432.
 - **Mobile app dependency install is slow** — Expo/React Native pull in large
   native-module packages; this is normal on first install.
+- **A NestJS provider is `undefined` inside a constructor when run via `tsx`**
+  (e.g. `this.auth` in a controller) — `tsx` (esbuild) does not reliably emit
+  TypeScript's `emitDecoratorMetadata` output, which Nest's dependency
+  injection relies on via `reflect-metadata` to resolve constructor
+  parameters. `nest build`/`nest start` (real `tsc`) are unaffected — this
+  only bites ad-hoc scripts or tests that import Nest modules through `tsx`.
+  Use `ts-node` instead for anything that boots a real Nest app (see
+  `apps/api/package.json`'s `test:e2e` script) — `tsx` remains fine for
+  plain-logic unit tests that don't touch Nest DI (e.g. `packages/financial`).

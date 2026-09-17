@@ -18,15 +18,22 @@ const apiEnvSchema = z.object({
   JWT_SECRET: z.string().min(16),
   JWT_ACCESS_TOKEN_TTL: z.string().default("15m"),
   JWT_REFRESH_TOKEN_TTL: z.string().default("30d"),
-  // AI/billing providers are optional at this stage — features that depend on them
-  // are gated off (never mocked) when unset. See docs/07-ai-architecture.md,
-  // docs/08-subscription-architecture.md.
+  // The web app's own origin, used to build links that go into emails
+  // (verify-email, reset-password) — never hardcoded per environment.
+  WEB_APP_URL: z.string().url().default("http://localhost:3000"),
+  // AI/billing/email providers are optional at this stage — features that depend
+  // on them are gated off (never mocked) when unset. See docs/07-ai-architecture.md,
+  // docs/08-subscription-architecture.md, and EmailModule (apps/api/src/email)
+  // for why an unset EMAIL_PROVIDER is fatal in production specifically, not just
+  // silently skipped.
   AI_PROVIDER: z.string().optional(),
   AI_PROVIDER_API_KEY: z.string().optional(),
   AI_MODEL: z.string().optional(),
   BILLING_PROVIDER: z.string().optional(),
   BILLING_PROVIDER_API_KEY: z.string().optional(),
   BILLING_WEBHOOK_SECRET: z.string().optional(),
+  EMAIL_PROVIDER: z.string().optional(),
+  EMAIL_PROVIDER_API_KEY: z.string().optional(),
 });
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;

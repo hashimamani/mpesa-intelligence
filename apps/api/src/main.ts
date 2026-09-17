@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import cookieParser from "cookie-parser";
 import { NestFactory } from "@nestjs/core";
 import { loadApiConfig } from "@mpesa/config";
 import { AppModule } from "./app.module";
@@ -9,7 +10,11 @@ async function bootstrap() {
   const config = loadApiConfig();
 
   const app = await NestFactory.create(AppModule);
-  app.enableCors();
+  app.use(cookieParser());
+  // credentials:true + an explicit origin (not "*") is required for the
+  // httpOnly refresh-token cookie (see auth.controller.ts) to be sent
+  // cross-origin from apps/web.
+  app.enableCors({ origin: config.WEB_APP_URL, credentials: true });
   await app.listen(config.PORT);
 
   // eslint-disable-next-line no-console

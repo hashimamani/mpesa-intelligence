@@ -3,20 +3,24 @@
 A commercial-grade financial analytics platform that turns an M-Pesa statement into
 a clear picture of how money moves — for individuals and for businesses.
 
-## Status: Stage 2 — Repository scaffold
+## Status: Stage 4 — Authentication
 
-Phase 0 (discovery) is done — see `/docs`. Stage 2 (this one) has produced a
-real, buildable monorepo: `apps/api` (NestJS), `apps/web` and `apps/admin`
-(Next.js), `apps/mobile` (Expo/React Native), and `packages/*` (shared types,
-money handling, validation, config, design-system stub), plus a local dev
-environment (`docker-compose.yml`: Postgres, Redis, MinIO) and CI-ready
-lint/typecheck/test/build scripts. See [docs/11-development.md](docs/11-development.md)
+Phase 0 (discovery) is done — see `/docs`. Stage 2 produced a real, buildable
+monorepo (`apps/api` NestJS, `apps/web`/`apps/admin` Next.js, `apps/mobile`
+Expo, shared `packages/*`, local dev infra via `docker-compose.yml`). Stage 3
+added a real design system (`packages/ui`: tokens + components, see
+[docs/12-design-system.md](docs/12-design-system.md)). Stage 4 (this one)
+added a full backend auth system — registration, email verification, login,
+refresh-token rotation with reuse detection, logout, and password reset —
+backed by Postgres via Prisma, tested end-to-end against a real database, not
+mocks. See [docs/13-auth-architecture.md](docs/13-auth-architecture.md) for
+what was decided and why, and [docs/11-development.md](docs/11-development.md)
 to run it.
 
-No product features exist yet — no auth, no upload, no real UI. That starts
-at Stage 3 (design system) and Stage 4 (auth). Items flagged in
+No login/register UI exists yet — this stage is the API. Items flagged in
 [10-risks-and-decisions.md](docs/10-risks-and-decisions.md) still need an
-explicit answer from the product owner before those stages begin in earnest.
+explicit answer from the product owner before production-facing stages (11+)
+begin in earnest.
 
 ## Reading order
 
@@ -32,6 +36,7 @@ explicit answer from the product owner before those stages begin in earnest.
 10. [10-risks-and-decisions.md](docs/10-risks-and-decisions.md) — major risks and decisions that need sign-off
 11. [11-development.md](docs/11-development.md) — how to run this repo locally
 12. [12-design-system.md](docs/12-design-system.md) — visual language, tokens, and component set
+13. [13-auth-architecture.md](docs/13-auth-architecture.md) — Prisma, token rotation, session model, email fallback
 
 ## What this repository deliberately does not include (yet)
 

@@ -4,13 +4,15 @@ import { z } from "zod";
 // boundary check) and by web/mobile clients (for inline form feedback). The API's
 // server-side validation is what actually matters — client-side use is UX only.
 
+export const passwordSchema = z
+  .string()
+  .min(10, "Password must be at least 10 characters")
+  .regex(/[A-Z]/, "Password must include an uppercase letter")
+  .regex(/[0-9]/, "Password must include a number");
+
 export const registerSchema = z.object({
   email: z.string().email(),
-  password: z
-    .string()
-    .min(10, "Password must be at least 10 characters")
-    .regex(/[A-Z]/, "Password must include an uppercase letter")
-    .regex(/[0-9]/, "Password must include a number"),
+  password: passwordSchema,
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
@@ -19,6 +21,30 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+export const verifyEmailSchema = z.object({
+  token: z.string().min(1),
+});
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: passwordSchema,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+export const refreshTokenSchema = z.object({
+  // Optional because the primary path is an httpOnly cookie (see
+  // apps/api/src/auth) — this body field is a fallback for non-browser
+  // clients that can't rely on a cookie jar (e.g. a future mobile app).
+  refreshToken: z.string().min(1).optional(),
+});
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 
 export const statementUploadSchema = z.object({
   filename: z.string().min(1).max(255),

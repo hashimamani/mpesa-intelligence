@@ -115,6 +115,18 @@ export interface InsightDTO {
   confidence: number;
 }
 
+export interface AuthUserDTO {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  createdAt: string;
+}
+
+export interface AuthLoginResponseDTO {
+  accessToken: string;
+  user: AuthUserDTO;
+}
+
 export interface SpendingSummaryDTO {
   periodStart: string;
   periodEnd: string;
