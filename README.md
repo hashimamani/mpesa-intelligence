@@ -11,19 +11,22 @@ full backend auth system; Stage 5 added statement upload end-to-end (presigned
 S3/MinIO uploads, a BullMQ/Redis job queue with a separate worker process).
 Stage 6 (this one) adds real M-Pesa transaction extraction: a statement
 parser (row reconstruction from PDF text positions → pattern matching →
-balance-delta reconciliation → normalization), duplicate detection across
-statements, and a transactions table in `apps/web`'s upload page. See
-[docs/15-extraction-engine.md](docs/15-extraction-engine.md) for exactly how
-it works, its most important caveat (the parser has **not** been validated
-against a real Safaricom statement — none was available to build against),
-and a real layout limitation found by testing against actually-rendered
-PDFs. See [docs/11-development.md](docs/11-development.md) to run it.
+group-level reconciliation → normalization), duplicate detection across
+statements, and a transactions table in `apps/web`'s upload page. It was
+then **calibrated against one real M-Pesa statement** (read locally for
+testing only, never committed) — several original assumptions turned out
+wrong (unsigned amounts, receipt numbers assumed unique per row, a DD/MM/YYYY
+period format), all now fixed and verified: the real statement extracts
+cleanly, 77/77 rows, 100% reconciled. See
+[docs/15-extraction-engine.md](docs/15-extraction-engine.md) for exactly
+what was wrong, what real data proved it, and what's still unverified (one
+statement from one account is calibration, not proof of general
+correctness). See [docs/11-development.md](docs/11-development.md) to run it.
 
 No category taxonomy, merchant table, or analytics yet — that's Stage 7/8.
 Items flagged in [10-risks-and-decisions.md](docs/10-risks-and-decisions.md)
 still need an explicit answer from the product owner before production-facing
-stages (11+) begin in earnest, and the extraction layout risk above should be
-closed with a real statement sample before this handles real user data.
+stages (11+) begin in earnest.
 
 ## Reading order
 
@@ -51,8 +54,9 @@ closed with a real statement sample before this handles real user data.
 - No payment/billing provider has been integrated or contracted.
 - No category taxonomy, merchant table, analytics, or insights exist yet —
   extraction (Stage 6) stops at normalized transactions, not a dashboard.
-- The statement parser is unvalidated against a real M-Pesa statement (see
-  docs/15-extraction-engine.md) — a real, open risk, not a solved problem.
+- The statement parser has been calibrated against exactly one real
+  statement (see docs/15-extraction-engine.md) — not multiple accounts,
+  statement types, or edge cases. Tested-once, not proven-general.
 
 These require real-world setup (accounts, credentials, legal review) that only
 the product owner can authorize. See [10-risks-and-decisions.md](docs/10-risks-and-decisions.md)

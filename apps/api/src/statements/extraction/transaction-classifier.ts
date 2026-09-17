@@ -37,15 +37,22 @@ export function classifyTransactionType(description: string, direction: Directio
   return direction === "credit" ? "receive_money" : "other";
 }
 
+// Real descriptions put a numeric identifier (a till/paybill number, or a
+// masked phone number like "2547******338") between "to"/"from" and the
+// actual counterparty name — e.g. "to 522533 - Lipa na KCB", "to
+// -2547******338 GRACE OTIENO", "from 573388 - TERRAPAY MONEY TRANSFER
+// SERVICES (KENYA) LIMITED." Captures the name after that identifier (and
+// an optional " - " separator), stopping at " Acc." (an account-number
+// suffix), a sentence-ending ". ", or end of string. Calibrated against a
+// real statement, not assumed from the format's public documentation alone.
+const MERCHANT_PATTERN = /\b(?:to|from)\s+-?\d[\d*]*\s*-?\s*([A-Za-z][A-Za-z .,'&()-]*?)(?:\s+Acc\.|\.\s|\s*$)/i;
+
 /**
- * Best-effort counterparty/merchant name from the description — "to NAME"
- * or "from NAME" up to the next digit run (M-Pesa descriptions typically
- * follow the counterparty name with an account/phone number) or end of
- * string. Returns null rather than guessing wrong when the pattern doesn't
- * match cleanly.
+ * Best-effort counterparty/merchant name from the description. Returns null
+ * rather than guessing wrong when the pattern doesn't match cleanly.
  */
 export function extractMerchantName(description: string): string | null {
-  const match = /\b(?:to|from)\s+([A-Za-z][A-Za-z .'&-]*?)(?=\s+\d|\s*$)/i.exec(description);
-  const name = match?.[1]?.trim();
+  const match = MERCHANT_PATTERN.exec(description);
+  const name = match?.[1]?.trim().replace(/[-\s]+$/, "");
   return name && name.length > 0 ? name : null;
 }

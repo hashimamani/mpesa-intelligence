@@ -89,26 +89,37 @@ export async function processStatementJob(
     for (const row of reconciled) {
       const transactionType = classifyTransactionType(row.description, row.direction);
       const merchantName = extractMerchantName(row.description);
+      const magnitude = row.amount.abs();
 
+      // Matched on referenceNumber + description + amount, not
+      // referenceNumber alone — a real statement's receipt number is only
+      // unique per real-world transaction, not per row (see the Transaction
+      // model's rowIndex doc comment), so a bare referenceNumber match would
+      // also catch that transaction's own sibling charge/overdraft rows from
+      // the *same* real transaction, misflagging them as cross-statement
+      // duplicates of each other.
       const existingElsewhere = await deps.prisma.transaction.findFirst({
         where: {
           ownerType: statement.ownerType,
           ownerId: statement.ownerId,
           referenceNumber: row.referenceNumber,
+          description: row.description,
+          amount: magnitude.toFixed(2),
           statementId: { not: statement.id },
         },
       });
 
       await deps.prisma.transaction.upsert({
-        where: { statementId_referenceNumber: { statementId: statement.id, referenceNumber: row.referenceNumber } },
+        where: { statementId_rowIndex: { statementId: statement.id, rowIndex: row.rowIndex } },
         create: {
           statementId: statement.id,
           ownerType: statement.ownerType,
           ownerId: statement.ownerId,
+          rowIndex: row.rowIndex,
           transactionDate: row.transactionDate,
           transactionType,
           direction: row.direction,
-          amount: row.amount.toFixed(2),
+          amount: magnitude.toFixed(2),
           balanceAfter: row.balance.toFixed(2),
           description: row.description,
           rawDescription: row.raw,
@@ -120,7 +131,7 @@ export async function processStatementJob(
           transactionDate: row.transactionDate,
           transactionType,
           direction: row.direction,
-          amount: row.amount.toFixed(2),
+          amount: magnitude.toFixed(2),
           balanceAfter: row.balance.toFixed(2),
           description: row.description,
           rawDescription: row.raw,

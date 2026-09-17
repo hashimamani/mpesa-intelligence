@@ -221,6 +221,14 @@ model Transaction {
   statement               Statement             @relation(fields: [statementId], references: [id], onDelete: Cascade)
   ownerType               OwnerType             @map("owner_type")
   ownerId                 String                @map("owner_id")
+  /// Position among reconstructed PDF lines — the idempotency key within a
+  /// statement. NOT referenceNumber: a real statement commonly emits several
+  /// rows under the same receipt number for one real-world transaction (a
+  /// payment plus its own "Charge" line, a Fuliza payment plus its
+  /// "OverDraft of Credit Party" line) — found against a real statement, see
+  /// docs/15-extraction-engine.md. referenceNumber stays a plain indexed
+  /// field, used for cross-statement duplicate detection, not uniqueness.
+  rowIndex                Int                   @map("row_index")
   transactionDate         DateTime              @map("transaction_date")
   transactionType         TransactionType       @map("transaction_type")
   direction               TransactionDirection
@@ -245,7 +253,8 @@ model Transaction {
   createdAt               DateTime              @default(now()) @map("created_at")
   updatedAt               DateTime              @updatedAt @map("updated_at")
 
-  @@unique([statementId, referenceNumber])
+  @@unique([statementId, rowIndex])
   @@index([ownerType, ownerId, transactionDate])
+  @@index([ownerType, ownerId, referenceNumber])
   @@map("transactions")
 }

@@ -24,6 +24,14 @@ test("parses amounts with thousands separators", () => {
   assert.equal(parsed[0]!.balance.toFixed(2), "25212.56");
 });
 
+test("parses a signed (withdrawn) amount — the real statement format renders debits with a leading '-'", () => {
+  const line = "QA12345679 2026-08-01 09:15:23 Pay Bill Online to 522533 - Lipa na KCB Completed -2,350.00 33,244.99";
+  const { parsed, unparsed } = parseStatementRows([line]);
+  assert.equal(unparsed.length, 0);
+  assert.equal(parsed[0]!.amount.toFixed(2), "-2350.00");
+  assert.ok(parsed[0]!.amount.isNegative());
+});
+
 test("ignores lines that aren't transaction rows (headers, footers, disclaimers)", () => {
   const lines = [
     "M-PESA STATEMENT",
@@ -54,10 +62,16 @@ test("does not misfire on a merchant name that happens to look receipt-number-is
   assert.equal(unparsed.length, 0);
 });
 
-test("extracts an explicit statement period header", () => {
+test("extracts an explicit statement period header in slash-delimited DD/MM/YYYY format", () => {
   const { periodStart, periodEnd } = parseStatementPeriod(["Statement Period: 01/08/2026 - 31/08/2026"]);
   assert.equal(periodStart?.toISOString().slice(0, 10), "2026-08-01");
   assert.equal(periodEnd?.toISOString().slice(0, 10), "2026-08-31");
+});
+
+test("extracts an explicit statement period header in 'DD Mon YYYY' format — the real statement's actual format", () => {
+  const { periodStart, periodEnd } = parseStatementPeriod(["Statement Period: 01 Aug 2026 - 14 Aug 2026"]);
+  assert.equal(periodStart?.toISOString().slice(0, 10), "2026-08-01");
+  assert.equal(periodEnd?.toISOString().slice(0, 10), "2026-08-14");
 });
 
 test("falls back to min/max transaction dates when no period header is present", () => {
