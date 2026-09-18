@@ -9,7 +9,7 @@ trustworthy enough to leave un-flagged. Explicitly **not** in scope:
 category taxonomy (Food, Transport, ...), merchant deduplication tables,
 user corrections — that's Stage 7. Nothing here assumes Stage 7 exists.
 
-## Status: calibrated against one real statement
+## Status: calibrated against one real statement, now header-driven
 
 The parser was originally written against the *publicly documented* M-Pesa
 statement layout with no real sample to check it against — and when a real
@@ -22,6 +22,24 @@ is validation against a *single* statement from one account. Different
 statement periods, business accounts, pending/failed transactions, or a
 future Safaricom template change could all still surface new gaps. Treat
 this as tested-once, not proven-general.
+
+Row extraction was then rewritten to be **header-driven** rather than
+assuming a fixed column order (`extraction/column-mapper.ts`): it reads
+column positions from the statement's own header row instead of a hardcoded
+layout, so a reordered column order, relabeled headers ("Money In"/"Money
+Out" instead of "Paid In"/"Withdrawn"), a merged signed Amount column
+instead of split Paid In/Withdrawn, or a different date format all parse
+without a code change — see §How extraction actually works below. The
+original fixed-regex parser is kept as a fallback for when no row in the
+document has a header the column-mapper recognizes at all; it's what ran
+this project's very first real-statement calibration, so it stays as a
+safety net rather than being deleted. Re-running the real statement through
+the *new* dynamic path reproduces the exact same result (77/77, 100%
+reconciled) — and its header now actually drives the dynamic parser rather
+than silently falling back (see the changelog below for why the first
+attempt at detection missed it). Still scoped to M-Pesa PDF statements
+specifically — a bank statement, a CSV export, or a screenshot needs its own
+header vocabulary or its own parser, not this one.
 
 ## What was actually wrong, and the real data that proved it
 
@@ -83,13 +101,36 @@ this as tested-once, not proven-general.
 ## How extraction actually works (current)
 
 1. **Row reconstruction** (`pdf-inspector.ts`). Text items from `pdfjs-dist`
-   grouped by y-position (within 2pt) and sorted by x — a naive text dump
-   loses which words belong to which table row.
-2. **Row parsing** (`extraction/mpesa-statement-parser.ts`). A line is a
+   grouped by y-position (within 2pt) into rows, sorted by x within each row
+   — a naive text dump loses which words belong to which table row.
+   `inspectPdf` returns both the flattened `lines: string[]` (used for
+   period-text scanning and raw-text storage) and the underlying
+   `rows: PositionedItem[][]` (item-level x positions, used by the
+   column-mapper below).
+2. **Header-driven row parsing** (`extraction/column-mapper.ts`, the primary
+   path). Scans every reconstructed row for one containing enough
+   recognizable column-header labels — Receipt, Details, Balance, plus
+   either both Paid In/Withdrawn or a single Amount column — matched against
+   a synonym dictionary (e.g. "Paid In"/"Money In"/"Credit" all recognized as
+   the same column), not one fixed set of literal strings. That row's item
+   x-positions become the column boundaries (as midpoints between adjacent
+   columns, which tolerates right-aligned numeric columns). Every later row
+   has each of its items assigned to whichever column's zone its x falls in,
+   the column's text cells are read off, and each field is validated before
+   use — an unrecognized status, a non-decimal amount, or an ambiguous
+   Paid In/Withdrawn (both filled) becomes an `unparsed` row with a specific
+   reason rather than a guess. `extraction/date-utils.ts` parses the
+   Completion Time cell in ISO, slash-dated, or month-name form. If **no**
+   row in the document has a recognizable header at all, this returns null
+   and extraction falls back to:
+2b. **Fixed-column fallback** (`extraction/mpesa-statement-parser.ts`'s
+   `ROW_PATTERN`, `PARSER_VERSION`'s predecessor path). A line is a
    transaction candidate if it starts with something matching the receipt
-   shape (`[A-Z]{2}[A-Z0-9]{8}`), then matched against the full row pattern
-   (receipt, date, time, description, status, signed amount, balance). A
-   candidate that doesn't match is recorded as `unparsed`, not dropped.
+   shape (`[A-Z]{2}[A-Z0-9]{8}`), then matched against one fixed row pattern
+   (receipt, date, time, description, status, signed amount, balance) in
+   that exact order. Kept only as a safety net for a statement shape the
+   column-mapper's header detection can't recognize — extend the header
+   synonym dictionary first if a real statement ever needs this path.
 3. **Reconciliation** (`extraction/reconciliation.ts`). Direction comes from
    the amount's sign; consecutive same-receipt-number rows are grouped, and
    each group's net total is checked against the balance transition from the
@@ -125,8 +166,57 @@ amount's sign, and `transactionType` alone can't always imply it (what's the
 direction of "other" or "reversal"?). `rowIndex` — see the receipt-number
 finding above; it's the real idempotency key, not `referenceNumber`.
 
+## Changelog: making extraction header-driven
+
+The row parser started as a single fixed-order regex, calibrated against one
+real statement (see the findings above). That's brittle in a specific way:
+it assumes Safaricom's column order, labels, and amount-column shape never
+change, and has no way to handle a business/Till statement or a future
+template revision that reorders or relabels columns. Rewritten to read
+column positions from the statement's own header row instead
+(`extraction/column-mapper.ts`) — see §How extraction actually works above.
+
+Re-running the real statement through the new path was not a rubber stamp:
+the **first attempt at header detection silently failed** and fell back to
+the legacy fixed parser without either code path saying so out loud in the
+output — same 77/77 result, but for the wrong reason (the new dynamic path
+wasn't actually exercised). Tracing it down: the real statement's header row
+reads exactly `"Receipt Completion Time Details Status Paid In Withdrawn
+Balance"` — bare `"Receipt"`, not `"Receipt No."`. The header-matching regex
+required `"No."`/`"Number"` after `"Receipt"` and had no bare-word fallback,
+so it never matched. Fixed by adding `\breceipt\b` as a fallback alternative;
+re-verified afterward that the dynamic path now genuinely fires (confirmed
+via `detectHeaderColumns` returning real column positions, not null) and
+reproduces the identical 77/77, 100%-reconciled result. Worth stating
+plainly: catching this required actually checking that the new path *ran*,
+not just that the end-to-end output matched — a silent fallback to old,
+already-correct code would have looked identical from the outside while
+adding zero real coverage of the new capability.
+
+Also added one e2e test (`extraction.e2e-test.ts`) that builds a PDF with
+genuinely *positioned* columns (explicit x/y placement via pdfkit, not one
+flowing text line per row) in a different order and with relabeled headers,
+run through the real upload → worker → pdfjs-extraction pipeline — proving
+the dynamic parser works against real PDF-extracted item positions, not only
+the hand-built `PositionedItem` fixtures in column-mapper.test.ts's unit
+tests. (The project's pre-existing extraction fixtures all render one row as
+a single flowing text string, which — now-understood — never exercises the
+header-driven path at all; they still validate the fixed-column fallback,
+which is why they were left alone rather than rewritten.)
+
 ## Known gaps, honestly
 
+- **"Header-driven" means recognized-vocabulary-driven, not truly unbounded.**
+  The column-mapper still needs the header row to use wording its synonym
+  dictionary knows (`extraction/column-mapper.ts`'s `HEADER_PATTERNS`) — a
+  completely novel label it's never seen (not a synonym of Receipt/Details/
+  Status/Paid In/Withdrawn/Amount/Balance) won't be recognized, and that
+  statement falls back to the fixed-column parser, which itself only matches
+  one exact layout. A genuinely unrecognized statement still correctly lands
+  in `needs_review`/`failed` rather than extracting garbage — the parser
+  never guesses past what it can validate — but "regardless of format" is
+  bounded by that dictionary, which should grow as real statement variants
+  are actually seen, not be pre-populated with guesses now.
 - **Transaction types not in the original taxonomy fall through to
   `"other"`**: Fuliza-related entries ("OverDraft of Credit Party", "OD Loan
   Repayment") and bundle purchases appear in real data but aren't
@@ -168,5 +258,12 @@ directions/amounts, a payment-plus-charge group sharing one receipt number,
 a broken-balance statement landing in `needs_review`, zero-transaction
 documents failing outright, cross-statement duplicate flagging (including
 the regression case — a payment and its own charge must never flag each
-other as duplicates), idempotent retry, and tenant isolation on
-`/statements/:id/transactions`.
+other as duplicates), idempotent retry, tenant isolation on
+`/statements/:id/transactions`, and — via `buildColumnarStatementPdf` — a
+genuinely reordered/relabeled column layout extracted correctly through the
+real pdfjs pipeline. `column-mapper.test.ts` unit-tests the header-driven
+parser directly against hand-built `PositionedItem` fixtures: standard
+order, fully reordered columns, relabeled headers, a merged signed Amount
+column, slash/month-name date formats, and every "don't guess, flag it"
+path (ambiguous Paid In/Withdrawn, unrecognized status, non-decimal
+balance).

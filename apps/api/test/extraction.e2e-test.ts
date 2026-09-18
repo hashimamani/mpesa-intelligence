@@ -87,6 +87,47 @@ async function buildStatementPdf(headerLines: string[], rows: string[]): Promise
   });
 }
 
+/**
+ * Unlike `buildStatementPdf` above (one flowing text line per row — fine for
+ * exercising the legacy fixed-regex fallback, but not a genuine positioned
+ * table), this places each header label and each row's cells at explicit
+ * (x, y) coordinates — a real column layout, the way an actual M-Pesa PDF's
+ * table is built. Used to prove the header-driven dynamic parser
+ * (extraction/column-mapper.ts) through the real pdfjs extraction path, not
+ * just against hand-built PositionedItem fixtures in its own unit tests.
+ */
+async function buildColumnarStatementPdf(
+  preambleLines: string[],
+  columns: { label: string; x: number }[],
+  dataRows: string[][],
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, layout: "landscape", size: "A4" });
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    doc.fontSize(10);
+
+    let y = 40;
+    for (const line of preambleLines) {
+      doc.text(line, 40, y, { lineBreak: false });
+      y += 16;
+    }
+    y += 10;
+    for (const column of columns) doc.text(column.label, column.x, y, { lineBreak: false });
+    y += 16;
+    for (const cells of dataRows) {
+      columns.forEach((column, i) => {
+        const value = cells[i];
+        if (value) doc.text(value, column.x, y, { lineBreak: false });
+      });
+      y += 16;
+    }
+    doc.end();
+  });
+}
+
 async function uploadAndProcess(
   app: INestApplication,
   prisma: PrismaService,
@@ -336,6 +377,57 @@ test("tenant isolation holds for the transactions endpoint", async () => {
       .get(`/statements/${statementId}/transactions`)
       .set("Authorization", `Bearer ${userB.accessToken}`);
     assert.equal(crossRes.status, 404);
+  } finally {
+    await app.close();
+  }
+});
+
+test("extracts a statement whose columns are reordered and relabeled — proves the header-driven dynamic parser generalizes, not just the one layout it was calibrated against", async () => {
+  const { app, prisma, s3 } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+
+    // Deliberately the opposite of the real statement's own order (which is
+    // Receipt, Time, Details, Status, Paid In, Withdrawn, Balance), and using
+    // different-but-recognizable header wording ("Money In"/"Money Out"
+    // instead of "Paid In"/"Withdrawn", "Narrative" instead of "Details",
+    // "Date/Time" instead of "Completion Time").
+    const columns = [
+      { label: "Balance", x: 40 },
+      { label: "Money Out", x: 110 },
+      { label: "Money In", x: 180 },
+      { label: "Status", x: 250 },
+      { label: "Narrative", x: 330 },
+      { label: "Date/Time", x: 490 },
+      { label: "Receipt", x: 650 },
+    ];
+    const dataRows = [
+      ["5000.00", "", "5000.00", "Completed", "Funds received", "2026-08-01 08:00:00", "GG11111111"],
+      ["4000.00", "1000.00", "", "Completed", "Airtime Purchase", "2026-08-02 09:15:00", "GG11111112"],
+    ];
+    const pdf = await buildColumnarStatementPdf(HEADER, columns, dataRows);
+
+    const { statementId } = await uploadAndProcess(app, prisma, s3, accessToken, pdf);
+
+    const statementRes = await request(app.getHttpServer())
+      .get(`/statements/${statementId}`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(statementRes.body.statement.status, "processing"); // not needs_review, not failed
+    assert.equal(statementRes.body.statement.transactionCount, 2);
+
+    const txRes = await request(app.getHttpServer())
+      .get(`/statements/${statementId}/transactions`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    const transactions = txRes.body as Array<Record<string, unknown>>;
+
+    const credit = transactions.find((t) => t.referenceNumber === "GG11111111")!;
+    assert.equal(credit.direction, "credit");
+    assert.deepEqual(credit.amount, { amount: "5000.00", currency: "KES" });
+
+    const debit = transactions.find((t) => t.referenceNumber === "GG11111112")!;
+    assert.equal(debit.direction, "debit");
+    assert.equal(debit.transactionType, "airtime");
+    assert.deepEqual(debit.amount, { amount: "1000.00", currency: "KES" });
   } finally {
     await app.close();
   }

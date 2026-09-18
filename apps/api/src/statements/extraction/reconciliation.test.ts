@@ -15,7 +15,7 @@ test("direction comes from the amount's sign", () => {
     row("AA11111111", "08:00:00", "Funds received from 254733111222 - JANE DOE", "5000.00", "5000.00"),
     row("AA11111112", "09:00:00", "Customer Transfer to 254722000111 - JOHN KAMAU", "-500.00", "4500.00"),
   ];
-  const { parsed } = parseStatementRows(lines);
+  const { parsed } = parseStatementRows([], lines);
   const { transactions, confidence, issues } = reconcile(parsed);
 
   assert.equal(issues.length, 0);
@@ -42,7 +42,7 @@ test("reconciles a group of rows sharing one receipt number (payment + its own c
     row("AA11111112", "09:00:00", "Pay Bill Online to 522533 - Lipa na KCB", "-1000.00", "3980.00"),
     row("AA11111112", "09:00:00", "Pay Bill Charge", "-20.00", "3980.00"),
   ];
-  const { parsed } = parseStatementRows(lines);
+  const { parsed } = parseStatementRows([], lines);
   const { transactions, confidence, issues } = reconcile(parsed);
 
   assert.equal(issues.length, 0);
@@ -57,7 +57,7 @@ test("flags a group whose net amount doesn't match the balance movement", () => 
     // Balance only moved by 400, but the row claims 500 — a real inconsistency.
     row("AA11111112", "09:00:00", "Customer Transfer to 254722000111 - JOHN KAMAU", "-500.00", "4600.00"),
   ];
-  const { parsed } = parseStatementRows(lines);
+  const { parsed } = parseStatementRows([], lines);
   const { transactions, confidence, issues } = reconcile(parsed);
 
   assert.equal(transactions[1]!.reconciled, false);
@@ -71,7 +71,7 @@ test("sorts rows chronologically before reconciling, regardless of input order",
     row("BB11111112", "09:00:00", "Customer Transfer to 254722000111 - JOHN KAMAU", "-500.00", "4500.00"),
     row("BB11111111", "08:00:00", "Funds received from 254733111222 - JANE DOE", "5000.00", "5000.00"),
   ];
-  const { parsed } = parseStatementRows(lines);
+  const { parsed } = parseStatementRows([], lines);
   const { transactions } = reconcile(parsed);
 
   assert.equal(transactions[0]!.referenceNumber, "BB11111111");
@@ -81,7 +81,7 @@ test("sorts rows chronologically before reconciling, regardless of input order",
 
 test("the first group (no prior balance to compare against) is treated as reconciled", () => {
   const lines = [row("CC11111111", "08:00:00", "Funds received from 254733111222 - JANE DOE", "5000.00", "5000.00")];
-  const { parsed } = parseStatementRows(lines);
+  const { parsed } = parseStatementRows([], lines);
   const { transactions } = reconcile(parsed);
   assert.equal(transactions[0]!.direction, "credit");
   assert.equal(transactions[0]!.reconciled, true);

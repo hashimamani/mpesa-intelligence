@@ -1,5 +1,11 @@
 import path from "node:path";
 
+export interface PositionedItem {
+  str: string;
+  x: number;
+  y: number;
+}
+
 export interface PdfInspection {
   numPages: number;
   text: string;
@@ -8,6 +14,13 @@ export interface PdfInspection {
    * left-to-right/top-to-bottom text dump loses which words belong to which
    * table row. See docs/15-extraction-engine.md. */
   lines: string[];
+  /** Same row grouping as `lines`, but keeping each item's x-position instead
+   * of flattening to a string. The dynamic column-mapper (extraction/
+   * column-mapper.ts) needs this to read column boundaries off wherever the
+   * statement's own header row places them, rather than assuming a fixed
+   * column order. `lines` remains for period-text scanning and raw-text
+   * storage, where position doesn't matter. */
+  rows: PositionedItem[][];
 }
 
 // pdfjs-dist's legacy Node build ships ESM-only (.mjs, no CJS entry). A plain
@@ -33,17 +46,11 @@ const standardFontDataUrl = path.join(
   "standard_fonts/",
 );
 
-interface PositionedItem {
-  str: string;
-  x: number;
-  y: number;
-}
-
 /** Groups text items whose baselines fall within 2pt of each other into the
  * same row, then orders items left-to-right within it. 2pt tolerance absorbs
  * normal sub-pixel/rounding variance between items meant to be on one line
  * without merging genuinely adjacent lines (typical line height is 10-14pt). */
-function reconstructLines(items: PositionedItem[]): string[] {
+function reconstructRows(items: PositionedItem[]): PositionedItem[][] {
   const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
   const rows: PositionedItem[][] = [];
 
@@ -56,14 +63,15 @@ function reconstructLines(items: PositionedItem[]): string[] {
     }
   }
 
-  return rows.map((row) =>
-    row
-      .sort((a, b) => a.x - b.x)
-      .map((item) => item.str)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim(),
-  );
+  return rows.map((row) => [...row].sort((a, b) => a.x - b.x));
+}
+
+export function flattenRow(row: PositionedItem[]): string {
+  return row
+    .map((item) => item.str)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -83,7 +91,7 @@ export async function inspectPdf(bytes: Buffer): Promise<PdfInspection> {
   const doc = await loadingTask.promise;
   try {
     let text = "";
-    const lines: string[] = [];
+    const rows: PositionedItem[][] = [];
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
       const page = await doc.getPage(pageNumber);
       const content = await page.getTextContent();
@@ -94,9 +102,10 @@ export async function inspectPdf(bytes: Buffer): Promise<PdfInspection> {
 
       text += items.map((item) => item.str).join(" ");
       text += "\n";
-      lines.push(...reconstructLines(items));
+      rows.push(...reconstructRows(items));
     }
-    return { numPages: doc.numPages, text, lines };
+    const lines = rows.map(flattenRow);
+    return { numPages: doc.numPages, text, lines, rows };
   } finally {
     await doc.destroy();
   }

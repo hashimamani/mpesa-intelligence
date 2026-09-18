@@ -51,7 +51,7 @@ export async function processStatementJob(
       throw new Error("no_extractable_text_layer");
     }
 
-    const { parsed: parsedRows, unparsed, periodStart, periodEnd } = parseStatementRows(inspected.lines);
+    const { parsed: parsedRows, unparsed, periodStart, periodEnd } = parseStatementRows(inspected.rows, inspected.lines);
     if (parsedRows.length === 0) {
       throw new Error("no_transactions_found");
     }

@@ -1,4 +1,7 @@
-import { Decimal } from "decimal.js";
+import type { PositionedItem } from "../pdf-inspector";
+import { monthNameToIndex } from "./date-utils";
+import { parseStatementRowsDynamic } from "./column-mapper";
+import { RECEIPT_NUMBER, toDecimal, type ParsedRow, type UnparsedRow, type ParseResult } from "./row-types";
 
 /**
  * Targets the M-Pesa statement layout (the PDF export from the Safaricom
@@ -6,14 +9,17 @@ import { Decimal } from "decimal.js";
  * `Receipt | Completion Time | Details | Status | Paid In | Withdrawn | Balance`
  * rows under a header naming the customer and statement period, preceded by
  * a per-type SUMMARY table. Calibrated against one real statement (2026-09;
- * see docs/15-extraction-engine.md's changelog) — still not exhaustively
- * validated across statement variants (different date ranges, failed/
- * pending transactions, business accounts), so treat this as tested-once,
- * not proven-general.
+ * see docs/15-extraction-engine.md's changelog).
+ *
+ * Row extraction is now header-driven (extraction/column-mapper.ts): column
+ * positions, order, and labels are read from the statement's own header row
+ * rather than assumed fixed, so a reordered/relabeled/reformatted layout
+ * still parses. The fixed-regex parser below (`ROW_PATTERN`) only runs as a
+ * fallback when no row in the document contains a header the column-mapper
+ * recognizes at all.
  */
-export const PARSER_VERSION = "mpesa-statement-v2";
+export const PARSER_VERSION = "mpesa-statement-v3-dynamic";
 
-const RECEIPT_NUMBER = "[A-Z]{2}[A-Z0-9]{8}";
 // Withdrawn amounts render with a leading "-" in the real statement (Paid In
 // amounts don't) — both amount fields allow an optional sign defensively.
 // Row is a single line even when the Details text visually wraps onto
@@ -26,11 +32,6 @@ const ROW_PATTERN = new RegExp(
   `^(${RECEIPT_NUMBER})\\s+(\\d{4}-\\d{2}-\\d{2})\\s+(\\d{2}:\\d{2}:\\d{2})\\s+(.+?)\\s+(Completed|Pending|Failed)\\s+(-?[\\d,]+\\.\\d{2})\\s+(-?[\\d,]+\\.\\d{2})$`,
 );
 
-const MONTHS: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
 // "Statement Period: 01 Aug 2026 - 14 Aug 2026" — the actual format used by
 // the real statement this was calibrated against. A slash-delimited
 // DD/MM/YYYY variant is also accepted since other statement generations may
@@ -38,48 +39,15 @@ const MONTHS: Record<string, number> = {
 const PERIOD_PATTERN_TEXT = /Statement Period:?\s*(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})\s*-\s*(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/i;
 const PERIOD_PATTERN_SLASH = /Statement Period:?\s*(\d{2})\/(\d{2})\/(\d{4})\s*-\s*(\d{2})\/(\d{2})\/(\d{4})/i;
 
-export interface ParsedRow {
-  rowIndex: number;
-  raw: string;
-  referenceNumber: string;
-  transactionDate: Date;
-  description: string;
-  status: "Completed" | "Pending" | "Failed";
-  /** Signed — negative means withdrawn/debit, positive means paid in/credit.
-   * This is the primary direction signal (see reconciliation.ts); the
-   * running balance is used to validate it, not to derive it. */
-  amount: Decimal;
-  balance: Decimal;
-}
-
-export interface UnparsedRow {
-  rowIndex: number;
-  raw: string;
-  reason: string;
-}
-
-export interface ParseResult {
-  parsed: ParsedRow[];
-  unparsed: UnparsedRow[];
-  periodStart: Date | null;
-  periodEnd: Date | null;
-}
-
-function toDecimal(raw: string): Decimal {
-  return new Decimal(raw.replaceAll(",", ""));
-}
+export type { ParsedRow, UnparsedRow, ParseResult };
 
 /** A row is worth attempting to parse if it starts with something that
  * looks like a receipt number — cheaply filters out header/footer/disclaimer
  * lines, and (deliberately) any wrapped continuation line of a Details cell,
- * without running the full pattern against every line in the document. */
+ * without running the full pattern against every line in the document. Only
+ * used by the legacy fixed-column fallback. */
 function looksLikeTransactionRow(line: string): boolean {
   return new RegExp(`^${RECEIPT_NUMBER}\\b`).test(line);
-}
-
-function monthNameToIndex(name: string): number | null {
-  const key = name.slice(0, 3).toLowerCase();
-  return key in MONTHS ? MONTHS[key]! : null;
 }
 
 export function parseStatementPeriod(lines: string[]): { periodStart: Date | null; periodEnd: Date | null } {
@@ -113,7 +81,13 @@ export function parseStatementPeriod(lines: string[]): { periodStart: Date | nul
   return { periodStart: null, periodEnd: null };
 }
 
-export function parseStatementRows(lines: string[]): ParseResult {
+/**
+ * Fixed-column fallback: only reached when the header-driven dynamic parser
+ * (column-mapper.ts) can't find a recognizable header row anywhere in the
+ * document. Assumes the exact column order/format this project was
+ * originally calibrated against.
+ */
+function parseStatementRowsLegacy(lines: string[]): { parsed: ParsedRow[]; unparsed: UnparsedRow[] } {
   const parsed: ParsedRow[] = [];
   const unparsed: UnparsedRow[] = [];
 
@@ -148,6 +122,13 @@ export function parseStatementRows(lines: string[]): ParseResult {
       balance: toDecimal(balanceStr),
     });
   });
+
+  return { parsed, unparsed };
+}
+
+export function parseStatementRows(rows: PositionedItem[][], lines: string[]): ParseResult {
+  const dynamic = parseStatementRowsDynamic(rows);
+  const { parsed, unparsed } = dynamic ?? parseStatementRowsLegacy(lines);
 
   const { periodStart, periodEnd } = parseStatementPeriod(lines);
   const dates = parsed.map((row) => row.transactionDate.getTime());
