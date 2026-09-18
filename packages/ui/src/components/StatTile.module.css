@@ -1,0 +1,45 @@
+.tile {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  /* Lets .value's clamp() respond to this tile's own width (a 4-column vs.
+   * 2-column grid at narrower viewports), not the viewport's. */
+  container-type: inline-size;
+}
+
+.label {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.value {
+  /* clamp(), not a fixed size — a real KES figure can run to 7-8 digits
+   * (KSh 1,250,000.00), and this must stay legible without ellipsis-
+   * truncating an actual number (found by testing with real amounts, not
+   * assumed — a truncated money figure is worse than a slightly smaller one). */
+  font-size: clamp(1.25rem, 5cqw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-money-neutral);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.positive {
+  color: var(--color-money-positive);
+}
+
+.negative {
+  color: var(--color-money-negative);
+}
+
+.caption {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}

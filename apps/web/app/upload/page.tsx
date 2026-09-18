@@ -6,6 +6,7 @@ import type { StatementDTO, StatementWithJobDTO, TransactionDTO } from "@mpesa/t
 import { AppShell, Alert, Badge, Button, Card, EmptyState, ProcessingSteps, Spinner, Table, tableStyles } from "@mpesa/ui";
 import { useAuth } from "../../lib/auth-context";
 import { ApiError, statementsApi } from "../../lib/api";
+import { AppNav } from "../../lib/nav";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -112,6 +113,7 @@ export default function UploadPage() {
   return (
     <AppShell
       brand="M-Pesa Financial Intelligence"
+      nav={<AppNav />}
       side={
         <>
           <span style={{ fontSize: "0.875rem", color: "var(--color-text-secondary)" }}>{user?.email}</span>

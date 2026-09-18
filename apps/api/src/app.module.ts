@@ -9,6 +9,7 @@ import { AuthModule } from "./auth/auth.module";
 import { StatementsModule } from "./statements/statements.module";
 import { TransactionsModule } from "./transactions/transactions.module";
 import { AnalyticsModule } from "./analytics/analytics.module";
+import { CategoriesModule } from "./categories/categories.module";
 
 // Domain modules (insights, billing, organizations, admin) are added here
 // in later stages, each with an enforced boundary per docs/03-architecture.md.
@@ -27,6 +28,7 @@ import { AnalyticsModule } from "./analytics/analytics.module";
     StatementsModule,
     TransactionsModule,
     AnalyticsModule,
+    CategoriesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

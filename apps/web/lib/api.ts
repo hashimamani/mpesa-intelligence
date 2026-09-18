@@ -1,12 +1,14 @@
 import type {
   AuthLoginResponseDTO,
   AuthUserDTO,
+  CategoryDTO,
+  SpendingSummaryDTO,
   StatementDTO,
   StatementWithJobDTO,
   TransactionDTO,
   UploadUrlResponseDTO,
 } from "@mpesa/types";
-import type { StatementUploadInput } from "@mpesa/validation";
+import type { CategoryCorrectionInput, StatementUploadInput } from "@mpesa/validation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -90,4 +92,30 @@ export const statementsApi = {
 
   listTransactions: (accessToken: string, statementId: string) =>
     apiFetch<TransactionDTO[]>(`/statements/${statementId}/transactions`, { headers: withAuth(accessToken) }),
+};
+
+export const analyticsApi = {
+  /** `month` omitted defers to the API's own default (most recent month
+   * with any activity) — see docs/17-analytics-engine.md. */
+  summary: (accessToken: string, month?: string) =>
+    apiFetch<SpendingSummaryDTO>(`/analytics/summary${month ? `?month=${month}` : ""}`, { headers: withAuth(accessToken) }),
+
+  trend: (accessToken: string, months = 6) =>
+    apiFetch<SpendingSummaryDTO[]>(`/analytics/trend?months=${months}`, { headers: withAuth(accessToken) }),
+};
+
+export const categoriesApi = {
+  list: (accessToken: string) => apiFetch<CategoryDTO[]>("/categories", { headers: withAuth(accessToken) }),
+};
+
+export const transactionsApi = {
+  listForMonth: (accessToken: string, month?: string) =>
+    apiFetch<TransactionDTO[]>(`/transactions${month ? `?month=${month}` : ""}`, { headers: withAuth(accessToken) }),
+
+  correctCategory: (accessToken: string, input: CategoryCorrectionInput) =>
+    apiFetch<TransactionDTO>("/transactions/category-corrections", {
+      method: "POST",
+      headers: withAuth(accessToken),
+      body: JSON.stringify(input),
+    }),
 };

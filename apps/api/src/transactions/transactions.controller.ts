@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
 import { categoryCorrectionSchema, type CategoryCorrectionInput } from "@mpesa/validation";
 import type { TransactionDTO } from "@mpesa/types";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -11,6 +11,11 @@ import { TransactionsService } from "./transactions.service";
 @UseGuards(JwtAuthGuard)
 export class TransactionsController {
   constructor(private readonly transactions: TransactionsService) {}
+
+  @Get()
+  async list(@CurrentUser() user: AuthenticatedUser, @Query("month") month?: string): Promise<TransactionDTO[]> {
+    return this.transactions.listForMonth({ ownerType: "user", ownerId: user.id }, month);
+  }
 
   @Post("category-corrections")
   async correctCategory(

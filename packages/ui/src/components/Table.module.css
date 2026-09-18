@@ -6,7 +6,12 @@
 }
 
 .table {
-  width: 100%;
+  /* min-width, not width: a fixed 100% forces every column to squeeze into
+   * the wrapper's width instead of the wrapper's overflow-x:auto ever
+   * kicking in — found by testing a wide-content table (a Select per row)
+   * at phone width, where columns clipped instead of scrolling. */
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
 }

@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { OwnerContext } from "../statements/statements.service";
 import { toTransactionDTO } from "../statements/statements.mapper";
 import { calendarMonthOf } from "../analytics/period";
+import { resolveMonth } from "../analytics/resolve-month";
 import { computeAndStoreSpendingSummary } from "../analytics/summary";
 
 /**
@@ -17,6 +18,28 @@ import { computeAndStoreSpendingSummary } from "../analytics/summary";
 @Injectable()
 export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * All of this owner's transactions across every statement for one
+   * calendar month — the "Transaction list with manual category
+   * correction" MVP screen (docs/01-prd.md) needs a cross-statement view,
+   * unlike StatementsService.listTransactions which is scoped to one
+   * statement. Defaults to the same "most recent month with activity"
+   * behavior as analytics/analytics.service.ts, for consistency between
+   * the dashboard and the transaction list.
+   */
+  async listForMonth(owner: OwnerContext, monthParam?: string): Promise<TransactionDTO[]> {
+    const period = await resolveMonth(this.prisma, owner, monthParam);
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        ownerType: owner.ownerType,
+        ownerId: owner.ownerId,
+        transactionDate: { gte: period.periodStart, lt: period.exclusiveEnd },
+      },
+      orderBy: { transactionDate: "desc" },
+    });
+    return transactions.map(toTransactionDTO);
+  }
 
   async correctCategory(owner: OwnerContext, input: CategoryCorrectionInput): Promise<TransactionDTO> {
     // Ownership check and the id both in one query — same tenant-isolation

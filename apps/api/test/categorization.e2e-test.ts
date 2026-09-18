@@ -309,3 +309,52 @@ test("correcting another user's transaction is rejected as not found, not applie
     await app.close();
   }
 });
+
+test("GET /categories lists the full taxonomy, top-level categories alongside their subcategories", async () => {
+  const { app } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+    const res = await request(app.getHttpServer()).get("/categories").set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(res.status, 200);
+    const categories = res.body as Array<{ id: string; parentId: string | null; name: string; isActive: boolean }>;
+
+    const spending = categories.find((c) => c.parentId === null && c.name === "Spending");
+    assert.ok(spending);
+    const foodAndDining = categories.find((c) => c.name === "Food & Dining");
+    assert.ok(foodAndDining);
+    assert.equal(foodAndDining!.parentId, spending!.id);
+    assert.ok(categories.every((c) => c.isActive));
+  } finally {
+    await app.close();
+  }
+});
+
+test("GET /transactions lists across every statement for the owner's most recent active month, scoped to that owner only", async () => {
+  const { app, prisma, s3 } = await createTestApp();
+  try {
+    const userA = await registerVerifiedUser(app);
+    const userB = await registerVerifiedUser(app);
+
+    const firstPdf = await buildStatementPdf(HEADER, [
+      row("HH11111111", "2026-08-01", "08:00:00", "Airtime Purchase", "Completed", "-100.00", "4900.00"),
+    ]);
+    await uploadAndProcess(app, prisma, s3, userA.accessToken, firstPdf);
+    const secondPdf = await buildStatementPdf(HEADER, [
+      row("HH11111112", "2026-08-02", "09:00:00", "Customer Withdrawal at Agent 123456", "Completed", "-200.00", "4700.00"),
+    ]);
+    await uploadAndProcess(app, prisma, s3, userA.accessToken, secondPdf);
+    // User B's own transaction must never leak into User A's list.
+    const otherPdf = await buildStatementPdf(HEADER, [
+      row("HH11111113", "2026-08-03", "10:00:00", "Airtime Purchase", "Completed", "-50.00", "950.00"),
+    ]);
+    await uploadAndProcess(app, prisma, s3, userB.accessToken, otherPdf);
+
+    const res = await request(app.getHttpServer()).get("/transactions").set("Authorization", `Bearer ${userA.accessToken}`);
+    assert.equal(res.status, 200);
+    const transactions = res.body as Array<{ referenceNumber: string }>;
+    assert.equal(transactions.length, 2); // both of User A's, across two statements
+    assert.ok(transactions.every((t) => t.referenceNumber !== "HH11111113"));
+  } finally {
+    await app.close();
+  }
+});

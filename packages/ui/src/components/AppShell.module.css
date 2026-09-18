@@ -49,7 +49,19 @@
 
 @media (max-width: 640px) {
   .header {
-    padding: 0 var(--spacing-lg);
+    /* The fixed 64px single-row height only ever had to fit brand + side
+     * before Stage 9 gave `nav` its first real content — three nav links
+     * plus an email + logout button genuinely doesn't fit one row at phone
+     * width, so let the header wrap onto a second row here instead of
+     * clipping/overlapping the page below it (found by actually testing at
+     * 375px, not assumed). */
+    height: auto;
+    flex-wrap: wrap;
+    row-gap: var(--spacing-sm);
+    padding: var(--spacing-md) var(--spacing-lg);
+  }
+  .brand {
+    font-size: 0.9375rem;
   }
   .main {
     padding: var(--spacing-2xl) var(--spacing-lg);

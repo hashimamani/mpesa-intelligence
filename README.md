@@ -3,40 +3,46 @@
 A commercial-grade financial analytics platform that turns an M-Pesa statement into
 a clear picture of how money moves — for individuals and for businesses.
 
-## Status: Stage 8 — Analytics engine
+## Status: Stage 9 — Consumer dashboard
 
 Phase 0 (discovery) is done — see `/docs`. Stage 2 produced a real, buildable
 monorepo; Stage 3 added a real design system (`packages/ui`); Stage 4 added a
-full backend auth system; Stage 5 added statement upload end-to-end (presigned
-S3/MinIO uploads, a BullMQ/Redis job queue with a separate worker process).
-Stage 6 added real M-Pesa transaction extraction — a header-driven statement
-parser, group-level reconciliation, normalization — then **calibrated against
-one real M-Pesa statement** (read locally for testing only, never committed):
-77/77 rows, 100% reconciled. Stage 7 added real categorization: a six-group
-taxonomy (Spending, Transfers, Savings & Investments, Loans & Credit, Cash,
-Uncategorized) and a layered classifier — deterministic rules → merchant
-recognition → this owner's own correction history — with a
-`POST /transactions/category-corrections` endpoint for the user-always-wins
-layer. See [docs/15-extraction-engine.md](docs/15-extraction-engine.md) and
-[docs/16-categorization-engine.md](docs/16-categorization-engine.md) for the
-full story on each.
+full backend auth system; Stage 5 added statement upload end-to-end. Stage 6
+added real M-Pesa transaction extraction — a header-driven statement parser,
+group-level reconciliation, normalization — then **calibrated against one
+real M-Pesa statement**: 77/77 rows, 100% reconciled. Stage 7 added real
+categorization: a six-group taxonomy and a layered classifier (deterministic
+rules → merchant recognition → this owner's own correction history). Stage 8
+added deterministic analytics: totals, spend by category, spend by month
+(trend), top merchants — recomputed live from `Transaction` on every read,
+never trusted from cache. See
+[docs/15-extraction-engine.md](docs/15-extraction-engine.md),
+[docs/16-categorization-engine.md](docs/16-categorization-engine.md), and
+[docs/17-analytics-engine.md](docs/17-analytics-engine.md) for the full story
+on each.
 
-Stage 8 (this one) adds real deterministic analytics: totals (received/spent/
-fees/net movement), spend by category, spend by month (trend), and top
-merchants — matching docs/01-prd.md's MVP scope exactly (no AI-grounded
-insights, no anomaly/recurring detection — that's Stage 10). Every summary is
-recomputed live from `Transaction` on every read, write-through into a
-`SpendingSummary` cache table, rather than trusted from cache — a stale money
-figure shown to a user about their own money is a real trust failure, not
-just a performance nitpick. A clean statement finally reaches `processed`
-status now that the full `extraction → categorization → analytics` pipeline
-(docs/06) is complete. See
-[docs/17-analytics-engine.md](docs/17-analytics-engine.md) for exactly how
-totals are computed and its honest gaps. See
+Stage 9 (this one) gives that backend work an actual screen: a real consumer
+dashboard (`apps/web/app/dashboard`) — financial snapshot, "where your money
+went" category breakdown, spending trend, top merchants — and a transaction
+list (`apps/web/app/transactions`) with inline manual category correction,
+matching docs/01-prd.md's MVP feature list exactly. Per docs/02's "aha
+moment" journey, the dashboard's empty state *is* the first-upload prompt —
+a first-time user lands on the same screen that will later show their real
+numbers, not a separate marketing page. Three new reusable design-system
+components (`StatTile`, `BarList`, `TrendChart`) plus a `Select`, and two
+small backend additions this stage's UI needed (`GET /categories`,
+`GET /transactions?month=`). Manually verified end-to-end against the real
+running stack (register → upload → dashboard renders correct totals →
+correct a category → dashboard updates live) — see
+[docs/18-consumer-dashboard.md](docs/18-consumer-dashboard.md) for exactly
+what was built, two real bugs found and fixed while testing in an actual
+browser (a stat tile truncating a real money figure, a table not actually
+scrolling on narrow viewports), and its honest gaps. See
 [docs/11-development.md](docs/11-development.md) to run it.
 
-No dashboard UI or AI insights exist yet — that's Stage 9/10. Items flagged
-in [10-risks-and-decisions.md](docs/10-risks-and-decisions.md) still need an
+No AI insights, premium tiers, or business dashboards exist yet — that's
+Stage 10+. Items flagged in
+[10-risks-and-decisions.md](docs/10-risks-and-decisions.md) still need an
 explicit answer from the product owner before production-facing stages (11+)
 begin in earnest.
 
@@ -59,6 +65,7 @@ begin in earnest.
 15. [15-extraction-engine.md](docs/15-extraction-engine.md) — statement parsing, reconciliation, duplicate detection, known limitations
 16. [16-categorization-engine.md](docs/16-categorization-engine.md) — taxonomy, layered classifier, corrections, known gaps
 17. [17-analytics-engine.md](docs/17-analytics-engine.md) — totals, category/merchant breakdowns, trend, live-recompute design
+18. [18-consumer-dashboard.md](docs/18-consumer-dashboard.md) — dashboard/transactions screens, new UI primitives, bugs found testing in-browser
 
 ## What this repository deliberately does not include (yet)
 
@@ -66,8 +73,13 @@ begin in earnest.
   — `infrastructure/` contains placeholder Terraform, not working config (see its own README).
 - No app store (Apple/Google) developer accounts have been set up.
 - No payment/billing provider has been integrated or contracted.
-- No dashboard UI or AI-grounded insights exist yet — Stage 8 stops at the
-  analytics API, not a rendered screen.
+- No AI-grounded insights, premium tiers, or business dashboards exist yet.
+- No month-switcher on the dashboard/transaction list, and no pagination on
+  the transaction list — fine at MVP data volumes, see
+  docs/18-consumer-dashboard.md.
+- No automated frontend tests — `apps/web` has no test runner configured
+  (a gap inherited from Stage 3/4/5, not introduced at Stage 9); this
+  stage's UI was verified manually against the real running stack instead.
 - The statement parser has been calibrated against exactly one real
   statement (see docs/15-extraction-engine.md) — not multiple accounts,
   statement types, or edge cases. Tested-once, not proven-general.

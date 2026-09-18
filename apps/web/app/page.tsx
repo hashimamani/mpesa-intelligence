@@ -7,14 +7,15 @@ import { AppShell, Button, Spinner } from "@mpesa/ui";
 import { useAuth } from "../lib/auth-context";
 
 // Real onboarding per docs/02-user-journeys.md (J1): one action, no
-// questionnaire. Logged-in visitors go straight to /upload instead of
-// seeing this again.
+// questionnaire. Logged-in visitors go straight to /dashboard instead of
+// seeing this again — the dashboard itself carries the empty-state upload
+// prompt for a first-time user (J1 step 2), not this marketing page.
 export default function HomePage() {
   const { accessToken, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && accessToken) router.replace("/upload");
+    if (!loading && accessToken) router.replace("/dashboard");
   }, [loading, accessToken, router]);
 
   if (loading || accessToken) {
