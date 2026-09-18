@@ -116,7 +116,7 @@ test("assigns categories via the deterministic rule layer for unambiguous transa
     const statementRes = await request(app.getHttpServer())
       .get(`/statements/${statementId}`)
       .set("Authorization", `Bearer ${accessToken}`);
-    assert.equal(statementRes.body.statement.status, "processing");
+    assert.equal(statementRes.body.statement.status, "processed");
 
     const stored = await prisma.statement.findUniqueOrThrow({ where: { id: statementId } });
     assert.equal(stored.classificationVersion, "mpesa-categorization-v1");

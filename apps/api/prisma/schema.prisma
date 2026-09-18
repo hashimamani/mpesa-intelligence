@@ -347,3 +347,30 @@ model CategoryCorrection {
   @@index([ownerType, ownerId, createdAt])
   @@map("category_corrections")
 }
+
+/// Precomputed period aggregate — a CACHE, always rebuildable from
+/// Transaction (docs/04-database-erd.md), never the source of truth itself.
+/// analytics/summary.ts recomputes and upserts this row from scratch every
+/// time it's asked for a period (on statement processing, on a category
+/// correction, and on every read) rather than trusting it as fresh without
+/// checking — a stale cached number shown to a user about their own money
+/// is exactly the trust failure docs/10's risk list warns about. One row
+/// per (owner, calendar month) — periods are always full calendar months,
+/// see docs/17-analytics-engine.md.
+model SpendingSummary {
+  id               String    @id @default(uuid())
+  ownerType        OwnerType @map("owner_type")
+  ownerId          String    @map("owner_id")
+  periodStart      DateTime  @map("period_start") @db.Date
+  periodEnd        DateTime  @map("period_end") @db.Date
+  /// The full computed SpendingSummaryDTO content (docs/17) as JSON — a
+  /// flexible cache payload, not a rigid schema, so adding a new computed
+  /// figure later doesn't need a migration.
+  totalsJson       Json      @map("totals_json")
+  analyticsVersion String    @map("analytics_version")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([ownerType, ownerId, periodStart, periodEnd])
+  @@map("spending_summaries")
+}

@@ -148,11 +148,26 @@ export interface AuthLoginResponseDTO {
 }
 
 export interface SpendingSummaryDTO {
-  periodStart: string;
-  periodEnd: string;
+  periodStart: string; // YYYY-MM-DD, always the first day of a calendar month
+  periodEnd: string; // YYYY-MM-DD, always the last day of that same month
   totalReceived: Money;
+  /** Real consumption only — the "Spending" top-level category's subcategories
+   * (Food & Dining, Transport, Bills, ...). Excludes transfers, cash
+   * withdrawals, savings, and loan activity — see docs/06's accounting
+   * distinction and docs/17-analytics-engine.md. */
   totalSpent: Money;
+  /** Sum of transactionType "fee" rows — M-Pesa's own charges appear as
+   * their own transaction rows, not a sub-field on the transaction they're
+   * attached to (docs/17). */
   totalFees: Money;
+  /** totalReceived minus every debit in the period, regardless of category
+   * — the actual balance movement, not a category-filtered figure. */
   netMovement: Money;
-  byCategory: Array<{ categoryId: string; total: Money }>;
+  /** One entry per Spending subcategory with any activity this period,
+   * sorted by total descending ("biggest categories"). `categoryId` here is
+   * the specific subcategory's id. */
+  byCategory: Array<{ categoryId: string; categoryName: string; total: Money }>;
+  /** Top real merchants by spend this period (Transfers/Cash/etc. excluded
+   * — a P2P transfer's counterparty isn't a "merchant"). */
+  topMerchants: Array<{ merchantName: string; total: Money; transactionCount: number }>;
 }

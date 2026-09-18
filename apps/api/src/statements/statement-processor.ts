@@ -7,15 +7,19 @@ import { classifyTransactionType, extractMerchantName } from "./extraction/trans
 import { CLASSIFICATION_VERSION, classifyTransaction } from "../categorization/classifier";
 import { ensureCategorizationDataSeeded, loadCategoryLookup } from "../categorization/taxonomy-seeder";
 import { loadHistoryLookup, loadMerchantLookup } from "../categorization/lookups";
+import { calendarMonthOf } from "../analytics/period";
+import { ANALYTICS_VERSION, computeAndStoreSpendingSummary } from "../analytics/summary";
 
 /**
  * Stage 5 confirmed the upload was a real, readable PDF. Stage 6 added the
  * actual extraction: parse the M-Pesa transaction table, reconcile it
  * against the running balance, normalize each row into a Transaction. Stage
- * 7 (this one) adds categorization: every reconciled row also gets a
- * category/subcategory via the layered classifier (docs/06 §Categorization
- * engine) before being persisted. See docs/15-extraction-engine.md and
- * docs/16-categorization-engine.md.
+ * 7 added categorization: every reconciled row also gets a category/
+ * subcategory via the layered classifier (docs/06 §Categorization engine).
+ * Stage 8 (this one) recomputes each affected calendar month's
+ * SpendingSummary before the statement can finally reach `processed` — see
+ * docs/15-extraction-engine.md, docs/16-categorization-engine.md, and
+ * docs/17-analytics-engine.md.
  *
  * Written as a plain function (not a class method) so the BullMQ worker
  * (worker.ts) and tests can both call it directly — tests get deterministic,
@@ -190,6 +194,21 @@ export async function processStatementJob(
       });
     }
 
+    // Calculating analytics (Stage 8): every distinct calendar month this
+    // statement's reconciled transactions touch gets its SpendingSummary
+    // recomputed from ALL of this owner's transactions in that month (not
+    // just this statement's) — analytics periods are calendar months, not
+    // a statement's own arbitrary date range, so an owner's total for a
+    // month stays correct across multiple overlapping statement uploads.
+    // Run even when the statement will land in needs_review: the
+    // transactions that DID persist successfully are still real and should
+    // still be reflected, same principle as duplicate rows staying visible.
+    await deps.prisma.statementProcessingJob.update({ where: { id: job.id }, data: { stage: "calculating_analytics" } });
+    const touchedMonthKeys = new Set(reconciled.map((row) => calendarMonthOf(row.transactionDate).periodStart.toISOString()));
+    for (const key of touchedMonthKeys) {
+      await computeAndStoreSpendingSummary(deps.prisma, { ownerType: statement.ownerType, ownerId: statement.ownerId }, calendarMonthOf(new Date(key)));
+    }
+
     // Conservative by design: ANY unparsed candidate row or reconciliation
     // mismatch sends the statement to needs_review rather than treating
     // partial extraction as good enough — docs/06 is explicit that low
@@ -201,12 +220,17 @@ export async function processStatementJob(
     await deps.prisma.statement.update({
       where: { id: statement.id },
       data: {
-        status: needsReview ? "needs_review" : "processing",
+        // "processed", not "processing" — Stage 8 is the last MVP pipeline
+        // stage (docs/06: extraction -> categorization -> analytics ->
+        // status), so a clean statement is finally fully done, not stuck
+        // mid-pipeline forever.
+        status: needsReview ? "needs_review" : "processed",
         pageCount: inspected.numPages,
         periodStart,
         periodEnd,
         parserVersion: PARSER_VERSION,
         classificationVersion: CLASSIFICATION_VERSION,
+        analyticsVersion: ANALYTICS_VERSION,
       },
     });
     await deps.prisma.statementProcessingJob.update({

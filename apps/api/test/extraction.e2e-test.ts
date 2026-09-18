@@ -178,7 +178,7 @@ test("extracts a clean statement into correctly typed, directed, and reconciled 
     const statementRes = await request(app.getHttpServer())
       .get(`/statements/${statementId}`)
       .set("Authorization", `Bearer ${accessToken}`);
-    assert.equal(statementRes.body.statement.status, "processing"); // not needs_review, not failed
+    assert.equal(statementRes.body.statement.status, "processed"); // not needs_review, not failed
     assert.equal(statementRes.body.statement.transactionCount, 5);
     assert.equal(statementRes.body.statement.periodStart, "2026-08-01");
     assert.equal(statementRes.body.statement.periodEnd, "2026-08-31");
@@ -412,7 +412,7 @@ test("extracts a statement whose columns are reordered and relabeled — proves 
     const statementRes = await request(app.getHttpServer())
       .get(`/statements/${statementId}`)
       .set("Authorization", `Bearer ${accessToken}`);
-    assert.equal(statementRes.body.statement.status, "processing"); // not needs_review, not failed
+    assert.equal(statementRes.body.statement.status, "processed"); // not needs_review, not failed
     assert.equal(statementRes.body.statement.transactionCount, 2);
 
     const txRes = await request(app.getHttpServer())

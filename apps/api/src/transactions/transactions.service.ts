@@ -4,6 +4,8 @@ import type { TransactionDTO } from "@mpesa/types";
 import { PrismaService } from "../prisma/prisma.service";
 import type { OwnerContext } from "../statements/statements.service";
 import { toTransactionDTO } from "../statements/statements.mapper";
+import { calendarMonthOf } from "../analytics/period";
+import { computeAndStoreSpendingSummary } from "../analytics/summary";
 
 /**
  * Layer 5 of docs/06's categorization design: a user correction always
@@ -55,6 +57,13 @@ export class TransactionsService {
         },
       }),
     ]);
+
+    // A correction shifts which category this transaction's amount counts
+    // toward — the affected month's SpendingSummary would otherwise stay
+    // stale until the next statement upload touches that same month. See
+    // analytics/summary.ts's doc comment: recompute on every write, never
+    // trust the cache without refreshing it.
+    await computeAndStoreSpendingSummary(this.prisma, owner, calendarMonthOf(transaction.transactionDate));
 
     return toTransactionDTO(updated);
   }
