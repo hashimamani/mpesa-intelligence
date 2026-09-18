@@ -75,6 +75,16 @@ enum ClassificationSource {
   user_correction
 }
 
+/// "global" = curated/seeded, applies to every owner. "learned" is reserved
+/// for a future aggregate process (N independent owners' corrections
+/// agreeing) that promotes a pattern into the shared table — docs/06 is
+/// explicit that one owner's correction must never silently mutate global
+/// merchant knowledge by itself. Nothing writes "learned" yet.
+enum MerchantSource {
+  global
+  learned
+}
+
 model User {
   id              String    @id @default(uuid())
   email           String    @unique
@@ -143,32 +153,32 @@ model PasswordResetToken {
 /// "needs_review" actually mean at this stage (spoiler: no statement reaches
 /// "processed" yet — that requires categorization/analytics too, Stage 7/8).
 model Statement {
-  id                  String           @id @default(uuid())
-  ownerType           OwnerType        @map("owner_type")
-  ownerId             String           @map("owner_id")
-  s3Key               String           @unique @map("s3_key")
-  originalFilename    String           @map("original_filename")
-  contentType         String           @map("content_type")
-  sizeBytes           Int              @map("size_bytes")
-  status              StatementStatus  @default(pending_upload)
+  id                    String          @id @default(uuid())
+  ownerType             OwnerType       @map("owner_type")
+  ownerId               String          @map("owner_id")
+  s3Key                 String          @unique @map("s3_key")
+  originalFilename      String          @map("original_filename")
+  contentType           String          @map("content_type")
+  sizeBytes             Int             @map("size_bytes")
+  status                StatementStatus @default(pending_upload)
   /// S3's ETag for the uploaded object — a cheap, good-enough content
   /// fingerprint for dedup without downloading the file server-side to hash
   /// it ourselves. Null until upload is confirmed.
-  documentFingerprint String?          @map("document_fingerprint")
-  pageCount           Int?             @map("page_count")
-  periodStart         DateTime?        @db.Date @map("period_start")
-  periodEnd           DateTime?        @db.Date @map("period_end")
-  parserVersion       String?          @map("parser_version")
-  classificationVersion String?        @map("classification_version")
-  analyticsVersion    String?          @map("analytics_version")
-  insightVersion      String?          @map("insight_version")
-  createdAt           DateTime         @default(now()) @map("created_at")
-  updatedAt           DateTime         @updatedAt @map("updated_at")
-  deletedAt           DateTime?        @map("deleted_at")
+  documentFingerprint   String?         @map("document_fingerprint")
+  pageCount             Int?            @map("page_count")
+  periodStart           DateTime?       @map("period_start") @db.Date
+  periodEnd             DateTime?       @map("period_end") @db.Date
+  parserVersion         String?         @map("parser_version")
+  classificationVersion String?         @map("classification_version")
+  analyticsVersion      String?         @map("analytics_version")
+  insightVersion        String?         @map("insight_version")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+  deletedAt             DateTime?       @map("deleted_at")
 
-  jobs         StatementProcessingJob[]
+  jobs            StatementProcessingJob[]
   rawTransactions RawTransaction[]
-  transactions Transaction[]
+  transactions    Transaction[]
 
   @@unique([ownerType, ownerId, documentFingerprint])
   @@index([ownerType, ownerId])
@@ -209,18 +219,18 @@ model RawTransaction {
   @@map("raw_transactions")
 }
 
-/// Normalized, analytics-facing transaction. categoryId/subcategoryId/
-/// classificationSource are plain nullable columns, not yet FK relations —
-/// Stage 7 adds the Category table and migrates these into real relations.
+/// Normalized, analytics-facing transaction. Stage 7 turned categoryId/
+/// subcategoryId/merchantId into real FK relations (were plain nullable
+/// columns through Stage 6, unset until the categorization engine existed).
 /// Deliberately denormalizes ownerType/ownerId from Statement (rather than
 /// requiring a join for every tenant-scoped query) — see docs/15's tenant
 /// isolation note for why.
 model Transaction {
-  id                      String                @id @default(uuid())
-  statementId             String                @map("statement_id")
-  statement               Statement             @relation(fields: [statementId], references: [id], onDelete: Cascade)
-  ownerType               OwnerType             @map("owner_type")
-  ownerId                 String                @map("owner_id")
+  id                       String                @id @default(uuid())
+  statementId              String                @map("statement_id")
+  statement                Statement             @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  ownerType                OwnerType             @map("owner_type")
+  ownerId                  String                @map("owner_id")
   /// Position among reconstructed PDF lines — the idempotency key within a
   /// statement. NOT referenceNumber: a real statement commonly emits several
   /// rows under the same receipt number for one real-world transaction (a
@@ -228,33 +238,112 @@ model Transaction {
   /// "OverDraft of Credit Party" line) — found against a real statement, see
   /// docs/15-extraction-engine.md. referenceNumber stays a plain indexed
   /// field, used for cross-statement duplicate detection, not uniqueness.
-  rowIndex                Int                   @map("row_index")
-  transactionDate         DateTime              @map("transaction_date")
-  transactionType         TransactionType       @map("transaction_type")
-  direction               TransactionDirection
+  rowIndex                 Int                   @map("row_index")
+  transactionDate          DateTime              @map("transaction_date")
+  transactionType          TransactionType       @map("transaction_type")
+  direction                TransactionDirection
   /// NUMERIC, never float — see docs/03-architecture.md §Money handling.
-  amount                  Decimal               @db.Decimal(14, 2)
-  fee                     Decimal               @default(0) @db.Decimal(14, 2)
-  currency                String                @default("KES")
-  balanceAfter            Decimal?              @map("balance_after") @db.Decimal(14, 2)
-  description             String
-  rawDescription          String                @map("raw_description")
-  merchantName            String?               @map("merchant_name")
-  categoryId              String?               @map("category_id")
-  subcategoryId           String?               @map("subcategory_id")
-  classificationConfidence Float?               @map("classification_confidence")
-  classificationSource    ClassificationSource? @map("classification_source")
-  referenceNumber         String                @map("reference_number")
+  amount                   Decimal               @db.Decimal(14, 2)
+  fee                      Decimal               @default(0) @db.Decimal(14, 2)
+  currency                 String                @default("KES")
+  balanceAfter             Decimal?              @map("balance_after") @db.Decimal(14, 2)
+  description              String
+  rawDescription           String                @map("raw_description")
+  merchantName             String?               @map("merchant_name")
+  merchantId               String?               @map("merchant_id")
+  merchant                 Merchant?             @relation(fields: [merchantId], references: [id])
+  /// Always the TOP-LEVEL category (parentId null) — pairs with
+  /// subcategoryId, which holds the specific child when the classifier (or a
+  /// user correction) resolved one. See categorization/classifier.ts.
+  categoryId               String?               @map("category_id")
+  category                 Category?             @relation("TransactionCategory", fields: [categoryId], references: [id])
+  subcategoryId            String?               @map("subcategory_id")
+  subcategory              Category?             @relation("TransactionSubcategory", fields: [subcategoryId], references: [id])
+  classificationConfidence Float?                @map("classification_confidence")
+  classificationSource     ClassificationSource? @map("classification_source")
+  referenceNumber          String                @map("reference_number")
   /// Set when this exact receipt number already exists for this owner from a
   /// different statement (e.g. overlapping re-upload) — docs/06's duplicate
   /// detection. The row is kept (visible, auditable) but flagged so Stage 8's
   /// analytics can exclude it from totals.
-  isDuplicateOf           String?               @map("is_duplicate_of")
-  createdAt               DateTime              @default(now()) @map("created_at")
-  updatedAt               DateTime              @updatedAt @map("updated_at")
+  isDuplicateOf            String?               @map("is_duplicate_of")
+  createdAt                DateTime              @default(now()) @map("created_at")
+  updatedAt                DateTime              @updatedAt @map("updated_at")
+
+  categoryCorrections CategoryCorrection[]
 
   @@unique([statementId, rowIndex])
   @@index([ownerType, ownerId, transactionDate])
   @@index([ownerType, ownerId, referenceNumber])
   @@map("transactions")
+}
+
+/// Self-referential, hierarchical taxonomy (docs/04-database-erd.md) — a
+/// top-level row has parentId null (e.g. "Spending"), a subcategory's
+/// parentId points to its top-level parent (e.g. "Food & Dining" under
+/// "Spending"). `slug` is the stable key code refers to (taxonomy.ts) —
+/// database ids are generated and must never be hardcoded into rule logic.
+/// Seeded idempotently at the start of every processing job (see
+/// categorization/taxonomy-seeder.ts) rather than via a separate migration-
+/// adjacent step someone has to remember to run.
+model Category {
+  id        String     @id @default(uuid())
+  parentId  String?    @map("parent_id")
+  parent    Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryParent")
+  slug      String     @unique
+  name      String
+  isActive  Boolean    @default(true) @map("is_active")
+  version   Int        @default(1)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  merchants                 Merchant[]
+  transactionsAsCategory    Transaction[]        @relation("TransactionCategory")
+  transactionsAsSubcategory Transaction[]        @relation("TransactionSubcategory")
+  corrections               CategoryCorrection[]
+
+  @@map("categories")
+}
+
+/// Recognized counterparty (docs/06 categorization layer 2). `normalizedName`
+/// is the uppercased/whitespace-collapsed key transactions are matched
+/// against (categorization/merchant-normalization.ts) — `canonicalName`
+/// stays the display form. Seeded with a small curated list (`source:
+/// global`); `learned` is reserved for a future aggregate-agreement process,
+/// never written by a single owner's correction (docs/06).
+model Merchant {
+  id                String         @id @default(uuid())
+  canonicalName     String         @map("canonical_name")
+  normalizedName    String         @unique @map("normalized_name")
+  defaultCategoryId String?        @map("default_category_id")
+  defaultCategory   Category?      @relation(fields: [defaultCategoryId], references: [id])
+  source            MerchantSource @default(global)
+  createdAt         DateTime       @default(now()) @map("created_at")
+
+  transactions Transaction[]
+
+  @@map("merchants")
+}
+
+/// A user's explicit override — always wins over any automatic
+/// classification (docs/06 layer 5). Scoped to the owner, feeds back into
+/// layer 3 (historical classification) for that owner's future
+/// transactions sharing the same merchant/description — never mutates
+/// Merchant.defaultCategoryId directly.
+model CategoryCorrection {
+  id                 String      @id @default(uuid())
+  transactionId      String      @map("transaction_id")
+  transaction        Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  ownerType          OwnerType   @map("owner_type")
+  ownerId            String      @map("owner_id")
+  previousCategoryId String?     @map("previous_category_id")
+  /// The specific category the user picked — may itself be a subcategory
+  /// (leaf) row; the service layer normalizes this into the Transaction's
+  /// (categoryId, subcategoryId) pair. See transactions/transactions.service.ts.
+  newCategoryId      String      @map("new_category_id")
+  newCategory        Category    @relation(fields: [newCategoryId], references: [id])
+  createdAt          DateTime    @default(now()) @map("created_at")
+
+  @@index([ownerType, ownerId, createdAt])
+  @@map("category_corrections")
 }

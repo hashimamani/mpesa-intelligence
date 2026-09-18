@@ -4,14 +4,18 @@ import { inspectPdf } from "./pdf-inspector";
 import { PARSER_VERSION, parseStatementRows } from "./extraction/mpesa-statement-parser";
 import { reconcile } from "./extraction/reconciliation";
 import { classifyTransactionType, extractMerchantName } from "./extraction/transaction-classifier";
+import { CLASSIFICATION_VERSION, classifyTransaction } from "../categorization/classifier";
+import { ensureCategorizationDataSeeded, loadCategoryLookup } from "../categorization/taxonomy-seeder";
+import { loadHistoryLookup, loadMerchantLookup } from "../categorization/lookups";
 
 /**
- * Stage 5 confirmed the upload was a real, readable PDF. Stage 6 continues
- * from there with the actual extraction: parse the M-Pesa transaction table,
- * reconcile it against the running balance, normalize each row into a
- * Transaction, and decide whether the statement is trustworthy enough to
- * leave un-flagged. Still NOT Stage 7 — no category taxonomy, no merchant
- * table, no user corrections. See docs/15-extraction-engine.md.
+ * Stage 5 confirmed the upload was a real, readable PDF. Stage 6 added the
+ * actual extraction: parse the M-Pesa transaction table, reconcile it
+ * against the running balance, normalize each row into a Transaction. Stage
+ * 7 (this one) adds categorization: every reconciled row also gets a
+ * category/subcategory via the layered classifier (docs/06 §Categorization
+ * engine) before being persisted. See docs/15-extraction-engine.md and
+ * docs/16-categorization-engine.md.
  *
  * Written as a plain function (not a class method) so the BullMQ worker
  * (worker.ts) and tests can both call it directly — tests get deterministic,
@@ -86,10 +90,27 @@ export async function processStatementJob(
       ],
     });
 
+    // Seeded idempotently (no separate step to remember before a deploy —
+    // see taxonomy-seeder.ts), then loaded once for the whole job rather
+    // than per row: categories/merchants are small tables, and this owner's
+    // correction history is scoped to them specifically.
+    await ensureCategorizationDataSeeded(deps.prisma);
+    await deps.prisma.statementProcessingJob.update({ where: { id: job.id }, data: { stage: "categorizing" } });
+    const [categoryLookup, merchantLookup, historyLookup] = await Promise.all([
+      loadCategoryLookup(deps.prisma),
+      loadMerchantLookup(deps.prisma),
+      loadHistoryLookup(deps.prisma, statement.ownerType, statement.ownerId),
+    ]);
+
     for (const row of reconciled) {
       const transactionType = classifyTransactionType(row.description, row.direction);
       const merchantName = extractMerchantName(row.description);
       const magnitude = row.amount.abs();
+      const classification = classifyTransaction(categoryLookup, merchantLookup, historyLookup, {
+        transactionType,
+        description: row.description,
+        merchantName,
+      });
 
       // Matched on referenceNumber + description + amount, not
       // referenceNumber alone — a real statement's receipt number is only
@@ -109,6 +130,32 @@ export async function processStatementJob(
         },
       });
 
+      // A reprocess (idempotent retry, or any future re-run) must never
+      // silently discard a user's own category correction — re-extraction
+      // re-derives transactionType/amount/etc. fresh every time, but
+      // classification stays whatever the user explicitly set once they've
+      // set it, same principle as docs/06 layer 5 "always wins."
+      const existingThisRow = await deps.prisma.transaction.findUnique({
+        where: { statementId_rowIndex: { statementId: statement.id, rowIndex: row.rowIndex } },
+        select: { classificationSource: true, categoryId: true, subcategoryId: true, classificationConfidence: true, merchantId: true },
+      });
+      const preserveUserCorrection = existingThisRow?.classificationSource === "user_correction";
+      const categorization = preserveUserCorrection
+        ? {
+            merchantId: existingThisRow.merchantId,
+            categoryId: existingThisRow.categoryId,
+            subcategoryId: existingThisRow.subcategoryId,
+            classificationConfidence: existingThisRow.classificationConfidence,
+            classificationSource: existingThisRow.classificationSource,
+          }
+        : {
+            merchantId: classification.merchantId,
+            categoryId: classification.categoryId,
+            subcategoryId: classification.subcategoryId,
+            classificationConfidence: classification.confidence,
+            classificationSource: classification.source,
+          };
+
       await deps.prisma.transaction.upsert({
         where: { statementId_rowIndex: { statementId: statement.id, rowIndex: row.rowIndex } },
         create: {
@@ -124,6 +171,7 @@ export async function processStatementJob(
           description: row.description,
           rawDescription: row.raw,
           merchantName,
+          ...categorization,
           referenceNumber: row.referenceNumber,
           isDuplicateOf: existingElsewhere?.id ?? null,
         },
@@ -136,6 +184,7 @@ export async function processStatementJob(
           description: row.description,
           rawDescription: row.raw,
           merchantName,
+          ...categorization,
           isDuplicateOf: existingElsewhere?.id ?? null,
         },
       });
@@ -157,6 +206,7 @@ export async function processStatementJob(
         periodStart,
         periodEnd,
         parserVersion: PARSER_VERSION,
+        classificationVersion: CLASSIFICATION_VERSION,
       },
     });
     await deps.prisma.statementProcessingJob.update({

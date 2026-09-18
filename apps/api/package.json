@@ -10,7 +10,7 @@
     "worker:start": "node dist/worker.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "node --test --import tsx src/statements/extraction/*.test.ts",
+    "test": "node --test --import tsx src/statements/extraction/*.test.ts src/categorization/*.test.ts",
     "test:e2e": "node --env-file=../../.env --require ts-node/register --test --test-force-exit test/*.e2e-test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

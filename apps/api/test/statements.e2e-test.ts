@@ -126,12 +126,16 @@ test("full statement upload flow: request URL -> upload to S3 -> confirm -> proc
       .get(`/statements/${statementId}`)
       .set("Authorization", `Bearer ${accessToken}`);
     assert.equal(afterRes.status, 200);
-    // "processing", not "processed" — extraction succeeded, but categorization/
-    // analytics (Stage 7/8) haven't run, so the pipeline isn't fully done.
+    // "processing", not "processed" — extraction and categorization (Stage
+    // 6/7) succeeded, but analytics (Stage 8) hasn't run yet, so the
+    // pipeline isn't fully done.
     assert.equal(afterRes.body.statement.status, "processing");
     assert.equal(afterRes.body.statement.pageCount, 1);
     assert.equal(afterRes.body.statement.transactionCount, 1);
-    assert.equal(afterRes.body.job.stage, "reading_transactions");
+    // "categorizing", not "reading_transactions" — Stage 7 added a real
+    // stage transition here (docs/06: "no simulated progress"), so this is
+    // now genuinely the last stage the job reaches until Stage 8 exists.
+    assert.equal(afterRes.body.job.stage, "categorizing");
     assert.ok(afterRes.body.job.completedAt);
     assert.equal(afterRes.body.job.errorCode, null);
 

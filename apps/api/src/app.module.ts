@@ -7,10 +7,13 @@ import { StorageModule } from "./storage/storage.module";
 import { QueueModule } from "./queue/queue.module";
 import { AuthModule } from "./auth/auth.module";
 import { StatementsModule } from "./statements/statements.module";
+import { TransactionsModule } from "./transactions/transactions.module";
 
-// Domain modules (transactions, categorization, analytics, insights,
-// billing, organizations, admin) are added here in later stages, each with
-// an enforced boundary per docs/03-architecture.md.
+// Domain modules (analytics, insights, billing, organizations, admin) are
+// added here in later stages, each with an enforced boundary per
+// docs/03-architecture.md. Categorization (Stage 7) has no module of its
+// own — it's pure logic invoked from statement-processor.ts, plus
+// TransactionsModule's correction endpoint (layer 5).
 @Module({
   imports: [
     // Default rate limit for every route; auth endpoints tighten this
@@ -21,6 +24,7 @@ import { StatementsModule } from "./statements/statements.module";
     QueueModule,
     AuthModule,
     StatementsModule,
+    TransactionsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
