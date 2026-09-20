@@ -250,7 +250,11 @@ test("a statement with no parseable transaction rows fails outright", async () =
   const { app, prisma, s3 } = await createTestApp();
   try {
     const { accessToken } = await registerVerifiedUser(app);
-    const pdf = await buildStatementPdf(["This document has no transaction table at all."], []);
+    // Long enough to clear the scanned-document text-density floor below —
+    // this is testing "real text, but genuinely no transaction table in
+    // it," a different failure mode from a scanned/image-based statement.
+    const filler = "This document has no transaction table at all. ".repeat(10);
+    const pdf = await buildStatementPdf([filler], []);
     const { statementId } = await uploadAndProcess(app, prisma, s3, accessToken, pdf);
 
     const statementRes = await request(app.getHttpServer())
@@ -258,6 +262,27 @@ test("a statement with no parseable transaction rows fails outright", async () =
       .set("Authorization", `Bearer ${accessToken}`);
     assert.equal(statementRes.body.statement.status, "failed");
     assert.equal(statementRes.body.job.errorCode, "no_transactions_found");
+  } finally {
+    await app.close();
+  }
+});
+
+test("a scanned/image-based statement (sparse text relative to page count) fails with a precise diagnosis, not the generic 'no transactions found'", async () => {
+  const { app, prisma, s3 } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+    // Mimics a real scanned statement found in the wild: a page carrying
+    // only a short line of header/footer-shaped text (well under the 300
+    // chars/page floor) — pdfjs still extracts *something* off a
+    // rasterized page, so this isn't a literal empty text layer.
+    const pdf = await buildStatementPdf(["Scanned copy"], []);
+    const { statementId } = await uploadAndProcess(app, prisma, s3, accessToken, pdf);
+
+    const statementRes = await request(app.getHttpServer())
+      .get(`/statements/${statementId}`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(statementRes.body.statement.status, "failed");
+    assert.equal(statementRes.body.job.errorCode, "looks_like_scanned_document");
   } finally {
     await app.close();
   }

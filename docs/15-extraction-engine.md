@@ -223,10 +223,31 @@ which is why they were left alone rather than rewritten.)
   classified specifically — no schema type exists for them, and adding one
   wasn't a decision to make unilaterally mid-stage. They still get a
   correct `direction` and are persisted, just genericized.
-- **Only one statement, one account, one period has been tested.** Pending/
-  failed transaction rows, a business (Till/Paybill-owner) statement, a
-  statement spanning a full month or year, and multi-page wrapping at scale
-  are all unverified.
+- **Only one statement, one account, one period has been fully verified as
+  extracting correctly.** Pending/failed transaction rows, a business
+  (Till/Paybill-owner) statement, a statement spanning a full month or
+  year, and multi-page wrapping at scale are all unverified.
+- **A second real statement, uploaded by the user, turned out to be a
+  scanned/photographed document (7 pages, ~450KB/page, one embedded raster
+  image per page, only ~119 characters of real extractable text per page)
+  — not a native text-based export.** This is squarely OCR territory,
+  explicitly out of MVP scope (docs/06 §Extraction: "OCR only when
+  necessary," V2). The real bug this surfaced wasn't in extraction itself —
+  it was in the *diagnosis*: `statement-processor.ts`'s only text-layer
+  check was `=== 0` length, and pdfjs still pulls a few dozen characters of
+  header/footer text off a rasterized page, so this fell through to the
+  generic `no_transactions_found` (implying "we found real text but no
+  transaction table in it") instead of anything pointing at the actual
+  cause. Fixed with a second, more precise check — average characters per
+  page below a floor (300, chosen with real margin below both this scanned
+  document's ~119/page and any genuine text-based statement's page, which
+  carries thousands of characters just from its own transaction rows) —
+  applied only *after* normal parsing has already found zero rows, not as
+  an earlier blanket gate (a real, short statement — or a small test
+  fixture — must still get a real parse attempt, not a pre-emptive
+  rejection by page-density alone). Result: `looks_like_scanned_document`,
+  a precise, actionable error instead of a misleading one. OCR support
+  itself remains unbuilt — this only makes the failure honest about why.
 - **Amount magnitude assumes no arithmetic ambiguity beyond what was
   observed** — e.g. it's not yet known how a statement would render a
   reversed transaction's sign, or whether Pending/Failed rows ever carry a

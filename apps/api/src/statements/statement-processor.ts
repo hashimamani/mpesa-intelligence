@@ -61,7 +61,21 @@ export async function processStatementJob(
 
     const { parsed: parsedRows, unparsed, periodStart, periodEnd } = parseStatementRows(inspected.rows, inspected.lines);
     if (parsedRows.length === 0) {
-      throw new Error("no_transactions_found");
+      // A scanned/photographed statement isn't always a literal zero-length
+      // text layer — pdfjs can still pull a few dozen characters of header/
+      // footer text off a rasterized page, so the check above alone doesn't
+      // catch it; the signature instead is very little text relative to
+      // page count. Found against a real user statement: 7 pages, 833
+      // characters total (~119/page — one embedded image per page,
+      // confirmed structurally) — which fell through to the generic
+      // "no_transactions_found" without this, hiding the actual cause.
+      // Deliberately checked only *after* parsing already found zero rows
+      // (not as an earlier unconditional gate) — a real, if short,
+      // statement can legitimately have well under 300 chars/page and must
+      // still get a real attempt at parsing, not a pre-emptive rejection.
+      const CHARS_PER_PAGE_FLOOR = 300;
+      const looksScanned = inspected.text.length / inspected.numPages < CHARS_PER_PAGE_FLOOR;
+      throw new Error(looksScanned ? "looks_like_scanned_document" : "no_transactions_found");
     }
 
     // Only "Completed" rows enter the balance-reconciliation chain and
