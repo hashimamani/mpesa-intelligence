@@ -323,6 +323,39 @@ test("the same transaction appearing in two uploaded statements is flagged as a 
   }
 });
 
+test("re-uploading the exact same file is never blocked — every upload is its own statement, and the repeated transaction is caught at the transaction level instead", async () => {
+  const { app, prisma, s3 } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+    const pdf = await buildStatementPdf(HEADER, [
+      row("DD11111111", "2026-08-01", "08:00:00", "Funds received from 254733111222 - MARY WANJIRU", "Completed", "5000.00", "5000.00"),
+    ]);
+
+    // Byte-for-byte identical upload, twice — this used to hit a 409
+    // "You've already uploaded this exact statement" on the second
+    // confirm (a Statement-level fingerprint uniqueness constraint),
+    // which meant a statement that failed processing could never be
+    // retried by re-uploading the same file. uploadAndProcess asserts
+    // confirmRes.status === 200 internally, so simply not throwing here
+    // already proves neither upload was blocked.
+    const { statementId: firstId } = await uploadAndProcess(app, prisma, s3, accessToken, pdf, "statement.pdf");
+    const { statementId: secondId } = await uploadAndProcess(app, prisma, s3, accessToken, pdf, "statement.pdf");
+    assert.notEqual(firstId, secondId); // two real, independent statements
+
+    const firstTxRes = await request(app.getHttpServer())
+      .get(`/statements/${firstId}/transactions`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    assert.equal((firstTxRes.body as Array<{ isDuplicate: boolean }>)[0]!.isDuplicate, false);
+
+    const secondTxRes = await request(app.getHttpServer())
+      .get(`/statements/${secondId}/transactions`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    assert.equal((secondTxRes.body as Array<{ isDuplicate: boolean }>)[0]!.isDuplicate, true);
+  } finally {
+    await app.close();
+  }
+});
+
 test("a payment and its own charge (sharing one receipt number) are NOT flagged as duplicates of each other", async () => {
   // Regression test for a real bug: referenceNumber alone isn't a safe
   // duplicate key, since a real statement's charge/overdraft lines share

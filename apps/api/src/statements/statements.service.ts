@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { StatementUploadInput } from "@mpesa/validation";
 import type { StatementWithJobDTO, UploadUrlResponseDTO, StatementDTO, TransactionDTO } from "@mpesa/types";
 import { PrismaService } from "../prisma/prisma.service";
@@ -58,18 +57,18 @@ export class StatementsService {
       );
     }
 
-    let updated;
-    try {
-      updated = await this.prisma.statement.update({
-        where: { id: statement.id },
-        data: { status: "uploaded", documentFingerprint: head.etag },
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new ConflictException("You've already uploaded this exact statement");
-      }
-      throw error;
-    }
+    // Every upload is treated as a new statement — re-uploading the exact
+    // same file (e.g. retrying one that previously failed) is never
+    // blocked. documentFingerprint is still recorded for reference, but
+    // isn't unique-constrained: duplicate *transactions* are what actually
+    // matter, and those are caught individually and precisely at the
+    // transaction level (isDuplicateOf, matched on referenceNumber +
+    // description + amount — see docs/15-extraction-engine.md), which is
+    // strictly better than blocking a whole re-upload ever was.
+    const updated = await this.prisma.statement.update({
+      where: { id: statement.id },
+      data: { status: "uploaded", documentFingerprint: head.etag },
+    });
 
     const job = await this.prisma.statementProcessingJob.create({
       data: { statementId: updated.id, stage: "uploaded" },

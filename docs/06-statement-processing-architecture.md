@@ -46,11 +46,24 @@ inconsistent.**
 
 ## Idempotency
 
-Every upload is fingerprinted (hash of file content). Re-uploading the same
-document resolves to the same `Statement` record rather than creating a
-duplicate. Job processing uses an idempotency key per job attempt so a retry
-after a worker crash cannot double-insert transactions — inserts are
-upserts keyed on `(statement_id, source_row_fingerprint)`.
+Job processing uses an idempotency key per job attempt so a retry after a
+worker crash cannot double-insert transactions — inserts are upserts keyed
+on `(statement_id, source_row_fingerprint)`.
+
+Every upload is still fingerprinted (S3's ETag, recorded on `Statement`),
+but — as of the initial real-user testing this pipeline went through —
+re-uploading the same document is **not** blocked or resolved to a prior
+`Statement`; every confirmed upload becomes its own new statement, full
+stop. The original design blocked a re-upload outright, which meant a
+statement that failed processing (e.g. a genuinely bad or unsupported file)
+could never be retried — the fingerprint stayed "taken" by the failed
+record forever. Duplicate *prevention* lives at the transaction level
+instead (`Transaction.isDuplicateOf`, matched on reference number +
+description + amount — see docs/15-extraction-engine.md), which is strictly
+more precise than blocking a whole re-upload ever was: it catches an
+actually-duplicated transaction row wherever it came from, without
+punishing a legitimate retry of a document that merely failed the first
+time.
 
 ## Categorization engine (layered, per the product principle: never rely on an LLM alone for authoritative classification)
 

@@ -161,9 +161,16 @@ model Statement {
   contentType           String          @map("content_type")
   sizeBytes             Int             @map("size_bytes")
   status                StatementStatus @default(pending_upload)
-  /// S3's ETag for the uploaded object — a cheap, good-enough content
-  /// fingerprint for dedup without downloading the file server-side to hash
-  /// it ourselves. Null until upload is confirmed.
+  /// S3's ETag for the uploaded object — a cheap content fingerprint, kept
+  /// for reference/debugging. NOT enforced unique (it originally was, via
+  /// `@@unique([ownerType, ownerId, documentFingerprint])`, which blocked
+  /// re-uploading the exact same file — including a legitimate retry after
+  /// a failed statement). Every upload is now treated as new; duplicate
+  /// prevention lives at the transaction level instead
+  /// (`Transaction.isDuplicateOf`, matched on referenceNumber+description+
+  /// amount — see docs/15-extraction-engine.md), which is strictly more
+  /// precise than blocking a whole re-upload ever was. Null until upload is
+  /// confirmed.
   documentFingerprint   String?         @map("document_fingerprint")
   pageCount             Int?            @map("page_count")
   periodStart           DateTime?       @map("period_start") @db.Date
@@ -180,7 +187,6 @@ model Statement {
   rawTransactions RawTransaction[]
   transactions    Transaction[]
 
-  @@unique([ownerType, ownerId, documentFingerprint])
   @@index([ownerType, ownerId])
   @@map("statements")
 }

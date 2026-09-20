@@ -28,9 +28,14 @@ that the upload actually landed and matches the declared size before
 trusting it — a client claiming success isn't enough.
 
 **Statement fingerprint: S3's ETag, not a server-side hash.** For a
-non-multipart PUT, S3/MinIO's ETag is the object's MD5 — good enough for
-dedup (`docs/06-statement-processing-architecture.md`'s idempotency
-requirement) without downloading the file server-side just to hash it.
+non-multipart PUT, S3/MinIO's ETag is the object's MD5 — recorded on every
+confirmed `Statement` without downloading the file server-side just to hash
+it. Originally unique-constrained per owner (blocking a re-upload of the
+same file outright); removed once real usage showed the actual failure
+mode — a statement that failed processing could never be retried, since its
+fingerprint stayed "taken" forever. Every upload is a new `Statement` now;
+see `docs/06-statement-processing-architecture.md`'s Idempotency section
+for why duplicate prevention moved to the transaction level instead.
 
 **A new `pending_upload` status** was added to `StatementStatus`
 (`@mpesa/types`) for the window between "client asked for an upload URL" and
