@@ -223,10 +223,30 @@ which is why they were left alone rather than rewritten.)
   classified specifically — no schema type exists for them, and adding one
   wasn't a decision to make unilaterally mid-stage. They still get a
   correct `direction` and are persisted, just genericized.
-- **Only one statement, one account, one period has been fully verified as
-  extracting correctly.** Pending/failed transaction rows, a business
-  (Till/Paybill-owner) statement, a statement spanning a full month or
-  year, and multi-page wrapping at scale are all unverified.
+- **Two real statements from one account have now been fully verified**
+  (the second: a password-protected export spanning 2.5 months, 17 pages,
+  587 rows — zero unparsed, 100% reconciled, via the header-driven parser
+  with no parser change needed). It surfaced one reconciliation bug,
+  below. Still unverified: pending/failed transaction rows, a business
+  (Till/Paybill-owner) statement, and a second *account*.
+- **Same-second ordering is resolved by the balance chain, not print
+  order — found on the second real statement.** A Fuliza auto-repayment
+  posts in the same second as the credit that triggered it, under its own
+  receipt number. Five such pairs in that statement: two printed the
+  repayment *above* the credit, three *below* — in the same document. The
+  reconciler had sorted by timestamp with no tiebreak (a stable sort keeps
+  print order), reversing two pairs and tripping two groups each (sums are
+  order-independent, so it self-corrected after: 583/587). A "statements
+  print newest-first" tiebreak was tried first — proven true for *global*
+  order on both real statements (664 rows, zero forward-in-time
+  neighbours) — and it fixed those two pairs and broke the other three, so
+  print order is simply not reliable within a second in either direction.
+  `reconciliation.ts` now buckets same-second groups and picks whichever
+  one chains from the running balance (the same check the group
+  verification already applies), falling back to print order — and the
+  usual flag — only if nothing chains. Unit-tested in both print orders.
+  The first statement had no same-second pair across different receipts,
+  which is why its 100% never exposed this.
 - **A second real statement, uploaded by the user, turned out to be a
   scanned/photographed document (7 pages, ~450KB/page, one embedded raster
   image per page, only ~119 characters of real extractable text per page)

@@ -79,6 +79,39 @@ test("sorts rows chronologically before reconciling, regardless of input order",
   assert.equal(transactions[1]!.reconciled, true);
 });
 
+// A Fuliza auto-repayment posts in the SAME second as the credit that
+// triggered it, under a different receipt. A real statement printed such
+// pairs both ways round (repayment above the credit in two cases, below it
+// in three) — so the print order can't decide, and only the balance chain
+// (credit -> repayment) can. Both print orders must reconcile identically.
+const EARLIER_ANCHOR = row("CC11111111", "08:00:00", "Customer Transfer to 254722000111 - JOHN KAMAU", "-200.00", "0.00");
+const CREDIT = row("CC22222222", "09:00:00", "Funds received from 254733111222 - JANE DOE", "5000.00", "5000.00");
+const REPAYMENT = row("CC33333333", "09:00:00", "OD Loan Repayment", "-500.00", "4500.00");
+
+test("same-second credit + Fuliza repayment reconcile when the repayment is printed ABOVE the credit", () => {
+  const { parsed } = parseStatementRows([], [REPAYMENT, CREDIT, EARLIER_ANCHOR]);
+  const { transactions, confidence, issues } = reconcile(parsed);
+  assert.deepEqual(transactions.map((t) => t.referenceNumber), ["CC11111111", "CC22222222", "CC33333333"]);
+  assert.equal(issues.length, 0);
+  assert.equal(confidence, 1);
+});
+
+test("same-second credit + Fuliza repayment reconcile when the repayment is printed BELOW the credit", () => {
+  const { parsed } = parseStatementRows([], [CREDIT, REPAYMENT, EARLIER_ANCHOR]);
+  const { transactions, confidence, issues } = reconcile(parsed);
+  assert.deepEqual(transactions.map((t) => t.referenceNumber), ["CC11111111", "CC22222222", "CC33333333"]);
+  assert.equal(issues.length, 0);
+  assert.equal(confidence, 1);
+});
+
+test("a same-second pair where neither order chains is still flagged, not silently accepted", () => {
+  const badRepayment = row("CC33333333", "09:00:00", "OD Loan Repayment", "-500.00", "9999.00"); // balance matches nothing
+  const { parsed } = parseStatementRows([], [badRepayment, CREDIT, EARLIER_ANCHOR]);
+  const { issues } = reconcile(parsed);
+  assert.equal(issues.length, 1);
+  assert.match(issues[0]!, /CC33333333/);
+});
+
 test("the first group (no prior balance to compare against) is treated as reconciled", () => {
   const lines = [row("CC11111111", "08:00:00", "Funds received from 254733111222 - JANE DOE", "5000.00", "5000.00")];
   const { parsed } = parseStatementRows([], lines);

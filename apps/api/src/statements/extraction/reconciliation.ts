@@ -38,24 +38,75 @@ export interface ReconciliationResult {
  * validated against a real statement (100% of groups reconciled) before
  * being adopted, not assumed.
  */
+function groupTotalOf(group: ParsedRow[]): Decimal {
+  return group.reduce((sum, row) => sum.plus(row.amount), new Decimal(0));
+}
+
+/** Does applying this group's net to `previousBalance` land on a balance
+ * some row in the group actually shows? The same test the group check
+ * below applies — reused to disambiguate same-second ordering. */
+function chainsFrom(group: ParsedRow[], previousBalance: Decimal): boolean {
+  const expected = previousBalance.plus(groupTotalOf(group));
+  return group.some((row) => row.balance.minus(expected).abs().lte(BALANCE_TOLERANCE));
+}
+
 export function reconcile(rows: ParsedRow[]): ReconciliationResult {
-  const sorted = [...rows].sort((a, b) => a.transactionDate.getTime() - b.transactionDate.getTime());
+  // Chronological. Same-second ties get a deterministic document order here
+  // only as a starting point — the print order is NOT trusted for them
+  // (see the bucket walk below).
+  const sorted = [...rows].sort(
+    (a, b) => a.transactionDate.getTime() - b.transactionDate.getTime() || a.rowIndex - b.rowIndex,
+  );
   const issues: string[] = [];
   const transactions: DirectedTransaction[] = [];
 
-  const groups: ParsedRow[][] = [];
+  // Buckets of groups sharing one timestamp; within a bucket, rows are
+  // grouped by receipt number (not merely by adjacency, so two receipts
+  // interleaved on the page can't split a group).
+  const buckets: ParsedRow[][][] = [];
   for (const row of sorted) {
-    const currentGroup = groups.at(-1);
-    if (currentGroup && currentGroup[0]!.referenceNumber === row.referenceNumber) {
-      currentGroup.push(row);
-    } else {
-      groups.push([row]);
+    const time = row.transactionDate.getTime();
+    let bucket = buckets.at(-1);
+    if (!bucket || bucket[0]![0]!.transactionDate.getTime() !== time) {
+      bucket = [];
+      buckets.push(bucket);
+    }
+    const group = bucket.find((g) => g[0]!.referenceNumber === row.referenceNumber);
+    if (group) group.push(row);
+    else bucket.push([row]);
+  }
+
+  // Walk buckets in time order. A bucket holding >1 receipt is where the
+  // statement's print order can't be trusted: a real second statement had
+  // five same-second credit + automatic-Fuliza-repayment pairs, of which
+  // two printed the repayment ABOVE its triggering credit and three printed
+  // it BELOW — in the same document. No positional rule works in either
+  // direction (a "newest-first" tiebreak was tried and broke the other
+  // three). What is reliable is the Balance column: only one ordering
+  // chains from the running balance. So among the bucket's remaining
+  // groups, take the one that chains; if none does, fall back to document
+  // order and let the group check flag it as it would have anyway.
+  const orderedGroups: ParsedRow[][] = [];
+  let previousBalance: Decimal | null = null;
+  const chainState = { balance: null as Decimal | null };
+  for (const bucket of buckets) {
+    const remaining = [...bucket];
+    while (remaining.length > 0) {
+      let pick = 0;
+      if (remaining.length > 1 && chainState.balance !== null) {
+        const chained = remaining.findIndex((g) => chainsFrom(g, chainState.balance!));
+        if (chained >= 0) pick = chained;
+      }
+      const [group] = remaining.splice(pick, 1);
+      orderedGroups.push(group!);
+      // Track the running balance the same way the main loop below does, so
+      // tie resolution and verification agree.
+      chainState.balance = chainState.balance === null ? group!.at(-1)!.balance : chainState.balance.plus(groupTotalOf(group!));
     }
   }
 
-  let previousBalance: Decimal | null = null;
-  for (const group of groups) {
-    const groupTotal = group.reduce((sum, row) => sum.plus(row.amount), new Decimal(0));
+  for (const group of orderedGroups) {
+    const groupTotal = groupTotalOf(group);
     const expectedBalance: Decimal | null = previousBalance === null ? null : previousBalance.plus(groupTotal);
     const reconciled =
       expectedBalance === null || group.some((row) => row.balance.minus(expectedBalance!).abs().lte(BALANCE_TOLERANCE));
