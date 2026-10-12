@@ -124,6 +124,23 @@ breakdown updated immediately — the Stage 8 live-recompute-on-correction
 design actually holding up through a real click, not just an e2e test
 mocking the HTTP layer.
 
+A second full live walkthrough (2026-10-12, after the post-MVP fixes:
+scanned-document diagnosis, re-upload unblocking) re-confirmed all of the
+above on a fresh account, plus the two new behaviors: a byte-identical
+re-upload went through (HTTP 200, previously a 409), its 9 rows were all
+flagged `isDuplicate`, and the dashboard's totals — *and* top-merchant
+transaction counts — stayed exactly at single-upload values; a real
+scanned statement failed as `looks_like_scanned_document`. The one gap
+that walkthrough exposed was in this stage's own UI: the upload page
+showed every failure as "We couldn't finish analyzing this statement — try
+uploading it again," discarding the precise `errorCode` the worker records
+and giving actively wrong advice for a scan (re-uploading can never help).
+Fixed: `app/upload/page.tsx`'s `failureMessageFor` maps each known code
+(`looks_like_scanned_document`/`no_extractable_text_layer`,
+`no_transactions_found`, `not_a_valid_pdf`/`pdf_has_no_pages`) to a
+message that says what's wrong and what to do instead, with the generic
+copy kept only as the fallback for a genuinely unexpected error.
+
 ## Known gaps, honestly
 
 - **No month-switcher control.** Both the dashboard and transaction list

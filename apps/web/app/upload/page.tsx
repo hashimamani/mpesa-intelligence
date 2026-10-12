@@ -10,6 +10,43 @@ import { AppNav } from "../../lib/nav";
 
 const POLL_INTERVAL_MS = 1500;
 
+/**
+ * The worker records a precise reason for every failure
+ * (statement-processor.ts's error codes); showing the user a generic
+ * "try again" for all of them was actively wrong advice for the most
+ * common real one — a scanned/photographed statement, where re-uploading
+ * the same file can never help (see docs/15-extraction-engine.md). Each
+ * known code gets a message that says what's wrong and what to do instead.
+ */
+function failureMessageFor(errorCode: string | null | undefined): { title: string; description: string } {
+  switch (errorCode) {
+    case "looks_like_scanned_document":
+    case "no_extractable_text_layer":
+      return {
+        title: "This looks like a scanned or photographed statement",
+        description:
+          "We can only read the PDF the M-Pesa app or portal generates itself (Download statement), which has real text inside it — a scan or photo of a printed statement doesn't. Re-uploading this same file won't help; please export a fresh PDF from M-Pesa and upload that instead.",
+      };
+    case "no_transactions_found":
+      return {
+        title: "We couldn't find a transaction table in this PDF",
+        description:
+          "The file opened and has text in it, but nothing in it looks like an M-Pesa transaction list. Check that it's a full M-Pesa statement rather than a summary, receipt, or a different document.",
+      };
+    case "not_a_valid_pdf":
+    case "pdf_has_no_pages":
+      return {
+        title: "This file isn't a readable PDF",
+        description: "It may be corrupted, empty, or not actually a PDF. Please export the statement again from M-Pesa and upload the new file.",
+      };
+    default:
+      return {
+        title: "We couldn't finish analyzing this statement",
+        description: "Something unexpected went wrong on our side. Try uploading it again, or contact support if it keeps happening.",
+      };
+  }
+}
+
 export default function UploadPage() {
   const { user, accessToken, loading, logout } = useAuth();
   const router = useRouter();
@@ -159,11 +196,7 @@ export default function UploadPage() {
                 />
               ) : null}
               {active.statement.status === "failed" ? (
-                <Alert
-                  tone="danger"
-                  title="We couldn't finish analyzing this statement"
-                  description="Try uploading it again, or contact support."
-                />
+                <Alert tone="danger" {...failureMessageFor(active.job?.errorCode)} />
               ) : null}
               {active.statement.status === "needs_review" ? (
                 <Alert
