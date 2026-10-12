@@ -4,6 +4,11 @@ export interface PositionedItem {
   str: string;
   x: number;
   y: number;
+  /** Rendered width/height in page units. Optional only for hand-built
+   * test fixtures; real pdfjs items always carry them. Without them,
+   * adjacent items are never merged (the pre-existing behaviour). */
+  width?: number;
+  height?: number;
 }
 
 export interface PdfInspection {
@@ -63,7 +68,37 @@ function reconstructRows(items: PositionedItem[]): PositionedItem[][] {
     }
   }
 
-  return rows.map((row) => [...row].sort((a, b) => a.x - b.x));
+  return rows.map((row) => mergeGlyphRuns([...row].sort((a, b) => a.x - b.x)));
+}
+
+/**
+ * Some PDFs emit one text item per GLYPH rather than per word — found on a
+ * real statement that had been re-saved from a viewer (same 1,550 lines
+ * as its original export, but 43 items per line instead of 3, the header
+ * arriving as "R","e","c","e","i","p","t" at x=51,56,60,64…). Joining
+ * those with spaces shredded every word and receipt number, so nothing
+ * matched. Merge consecutive items whose horizontal gap is smaller than a
+ * real inter-word space: kerned glyphs sit ~0pt apart (sometimes
+ * overlapping), a space at 10pt is ~2.5pt, a column gap 20pt+. The
+ * threshold scales with font size so it holds at other sizes. Per-word
+ * items (the normal case) are untouched — their gaps ARE spaces.
+ */
+export function mergeGlyphRuns(items: PositionedItem[]): PositionedItem[] {
+  const merged: PositionedItem[] = [];
+  for (const item of items) {
+    const prev = merged.at(-1);
+    if (prev && prev.width !== undefined && item.width !== undefined) {
+      const fontSize = Math.max(prev.height ?? 0, item.height ?? 0, 1);
+      const gap = item.x - (prev.x + prev.width);
+      if (gap < Math.max(0.5, 0.15 * fontSize)) {
+        prev.str += item.str;
+        prev.width = item.x + item.width - prev.x;
+        continue;
+      }
+    }
+    merged.push({ ...item });
+  }
+  return merged;
 }
 
 export function flattenRow(row: PositionedItem[]): string {
@@ -119,8 +154,17 @@ export async function inspectPdf(bytes: Buffer, options: InspectPdfOptions = {})
       const page = await doc.getPage(pageNumber);
       const content = await page.getTextContent();
       const items: PositionedItem[] = content.items
-        .filter((item): item is typeof item & { str: string; transform: number[] } => "str" in item)
-        .map((item) => ({ str: item.str, x: item.transform[4] ?? 0, y: item.transform[5] ?? 0 }))
+        .filter(
+          (item): item is typeof item & { str: string; transform: number[]; width: number; height: number } =>
+            "str" in item,
+        )
+        .map((item) => ({
+          str: item.str,
+          x: item.transform[4] ?? 0,
+          y: item.transform[5] ?? 0,
+          width: item.width,
+          height: item.height,
+        }))
         .filter((item) => item.str.trim().length > 0);
 
       text += items.map((item) => item.str).join(" ");

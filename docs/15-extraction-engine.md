@@ -274,6 +274,39 @@ which is why they were left alone rather than rewritten.)
   balance that should participate in reconciliation (currently excluded
   entirely from the reconciliation chain, per their status).
 
+## A third real variant: the same statement, re-saved from a viewer
+
+The second real statement arrived a second time as an unencrypted, 1.4MB
+re-save (likely "Save as"/print-to-PDF from a viewer). Identical content
+— the same 1,550 reconstructed lines — but **zero rows parsed**: header
+not detected, no receipt numbers found. pdfjs was emitting one text item
+per *glyph* (43 items per line instead of 3; the header arriving as
+`R`,`e`,`c`,`e`,`i`,`p`,`t` at x=51, 56, 60, 64…), and row reconstruction
+joined items with spaces, shredding every word and receipt number.
+
+Two changes, both verified against all three real statements (the two
+known-good ones unchanged at 100%):
+
+- **`pdf-inspector.ts` merges glyph runs back into words** — consecutive
+  items whose horizontal gap is under 0.15× the font size (kerned glyphs
+  sit at ~0pt, sometimes overlapping; a real space at 10pt is ~2.5pt; a
+  column gap 20pt+). Measured on the real file after merging: every
+  surviving boundary is either a space (0.25–0.5× font size) or a column
+  gap (3×+) — nothing in between. Per-word items from a normal export pass
+  through untouched. Items are now carried with pdfjs's `width`/`height`;
+  hand-built test fixtures without them keep the old behaviour.
+- **`column-mapper.ts` has a continuation rule.** With per-word items, a
+  long Details cell's later words start past the Details/Status midpoint
+  and were assigned to Status — "to Completed" is not a status, and 270 of
+  587 rows failed exactly that way. An item only a space-sized gap (under
+  0.75× font size) from its predecessor now stays in the predecessor's
+  column regardless of the midpoint. The two earlier statements never
+  tripped this only because each cell arrived as a single item.
+
+Result on the re-saved file: 587/587 parsed, 100% reconciled — identical
+to its encrypted original. "Header-driven" now also means "independent of
+how the PDF was last saved," at least for this variant.
+
 ## Real-data testing hygiene
 
 The real statement used to find and fix the issues above was read directly

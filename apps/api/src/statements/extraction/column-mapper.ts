@@ -126,13 +126,34 @@ function assignColumns(row: PositionedItem[], columns: HeaderColumn[]): Partial<
   const boundaries = computeBoundaries(columns);
   const buckets = new Map<ColumnLabel, string[]>();
 
+  let previous: PositionedItem | null = null;
+  let previousIndex = 0;
   for (const item of row) {
     let index = 0;
     while (index < boundaries.length && item.x >= boundaries[index]!) index++;
+
+    // Continuation rule: a cell can arrive as several items (one per word —
+    // found on a real statement re-saved from a viewer, where pdfjs emits
+    // per-glyph runs that pdf-inspector merges back into words). A long
+    // Details cell's later words then start past the midpoint into the
+    // Status column, and "to Completed" is not a status. If this item is
+    // only a space-sized gap from the previous one, it's the same cell:
+    // keep the previous column regardless of the midpoint. A real column
+    // gap is 3+ font-sizes wide; an inter-word space is 0.25-0.5; the
+    // threshold sits well clear of both. Width-less items (hand-built
+    // fixtures) fall through to the plain midpoint rule.
+    if (previous && previous.width !== undefined && item.width !== undefined && index !== previousIndex) {
+      const fontSize = Math.max(previous.height ?? 0, item.height ?? 0, 1);
+      const gap = item.x - (previous.x + previous.width);
+      if (gap < 0.75 * fontSize) index = previousIndex;
+    }
+
     const label = columns[index]!.label;
     const bucket = buckets.get(label);
     if (bucket) bucket.push(item.str);
     else buckets.set(label, [item.str]);
+    previous = item;
+    previousIndex = index;
   }
 
   const cells: Partial<Record<ColumnLabel, string>> = {};
