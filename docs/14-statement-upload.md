@@ -37,6 +37,36 @@ fingerprint stayed "taken" forever. Every upload is a new `Statement` now;
 see `docs/06-statement-processing-architecture.md`'s Idempotency section
 for why duplicate prevention moved to the transaction level instead.
 
+**Password-protected statements.** The PDF the M-Pesa app emails is
+encrypted by default, with the password sent separately by SMS (often the
+account holder's national ID number — so it's PII in its own right, not
+just a secret). Found the moment a real user tried a real export, not a
+hypothetical. The design:
+
+- The password is an optional field on the upload form and on
+  `POST /statements/:id/confirm` (`statementProcessingOptionsSchema`). It
+  travels only in the BullMQ job payload, is handed by the worker straight
+  to `inspectPdf` (pdfjs `getDocument({ password })`), and is never written
+  to the database, the `RawTransaction` audit trail, or logs. Jobs are
+  `removeOnComplete`/`removeOnFail` so a finished job's payload doesn't sit
+  in Redis — the durable outcome record is `StatementProcessingJob` in
+  Postgres, which never held the password. The web form clears it from
+  component state the moment confirm returns. An e2e test asserts the
+  password string appears nowhere on the persisted statement or its jobs.
+- pdfjs reports both "no password" and "wrong password" as a
+  `PasswordException`, distinguished by code (1 vs 2) — surfaced as two
+  error codes, `password_required` and `password_incorrect`, each with its
+  own actionable message on the upload page.
+- A new `POST /statements/:id/reprocess` re-runs processing on the
+  already-uploaded file with a supplied password (or none — a plain retry
+  after a fix), so a user never has to re-upload to recover from a missing
+  or mistyped password. Only a finished statement (`failed`/`needs_review`/
+  `processed`) can be reprocessed; one still in flight would double-run.
+- The alternative — decrypting synchronously at confirm and storing a
+  decrypted copy — would keep the password out of Redis entirely but needs
+  a decrypt-and-rewrite tool (qpdf-class; pdfjs only reads). Not worth a
+  native dependency for a payload that's already transient and single-use.
+
 **A new `pending_upload` status** was added to `StatementStatus`
 (`@mpesa/types`) for the window between "client asked for an upload URL" and
 "upload confirmed" — a statement that never gets confirmed (abandoned

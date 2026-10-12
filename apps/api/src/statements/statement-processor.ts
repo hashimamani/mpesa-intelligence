@@ -26,9 +26,17 @@ import { ANALYTICS_VERSION, computeAndStoreSpendingSummary } from "../analytics/
  * synchronous-feeling assertions against the real logic instead of polling a
  * live queue.
  */
+export interface ProcessStatementOptions {
+  /** Decryption password for a protected PDF — passed straight through to
+   * inspectPdf and nowhere else. Never persisted; see
+   * queue/statement-processing.queue.ts. */
+  password?: string;
+}
+
 export async function processStatementJob(
   deps: { prisma: PrismaService; s3: S3Service },
   jobId: string,
+  options: ProcessStatementOptions = {},
 ): Promise<void> {
   const job = await deps.prisma.statementProcessingJob.findUnique({ where: { id: jobId } });
   if (!job) return;
@@ -48,7 +56,7 @@ export async function processStatementJob(
       throw new Error("not_a_valid_pdf");
     }
 
-    const inspected = await inspectPdf(bytes);
+    const inspected = await inspectPdf(bytes, { password: options.password });
     if (!inspected.numPages || inspected.numPages < 1) {
       throw new Error("pdf_has_no_pages");
     }

@@ -57,6 +57,21 @@ export const statementUploadSchema = z.object({
 });
 export type StatementUploadInput = z.infer<typeof statementUploadSchema>;
 
+/**
+ * Options for processing an uploaded statement — used by both
+ * `POST /statements/:id/confirm` and `POST /statements/:id/reprocess`.
+ * The PDF the M-Pesa app emails is password-protected by default (the
+ * password arrives separately by SMS, often an ID number), so the password
+ * is a first-class input here. It is used once to decrypt and never
+ * persisted — see docs/14-statement-upload.md.
+ */
+export const statementProcessingOptionsSchema = z
+  .object({
+    password: z.string().min(1).max(128).optional(),
+  })
+  .default({});
+export type StatementProcessingOptions = z.infer<typeof statementProcessingOptionsSchema>;
+
 export const categoryCorrectionSchema = z.object({
   transactionId: z.string().uuid(),
   categoryId: z.string().uuid(),

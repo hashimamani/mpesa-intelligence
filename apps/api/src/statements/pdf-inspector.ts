@@ -79,16 +79,39 @@ export function flattenRow(row: PositionedItem[]): string {
  * table rows. Stage 5 used only numPages/text (basic readability check);
  * Stage 6's statement parser reads `lines`.
  */
-export async function inspectPdf(bytes: Buffer): Promise<PdfInspection> {
+export interface InspectPdfOptions {
+  /** Decryption password for a protected PDF. The statement the M-Pesa app
+   * emails is encrypted by default, so this is the normal case, not an
+   * edge case. Used only for this one load; never logged or stored. */
+  password?: string;
+}
+
+export async function inspectPdf(bytes: Buffer, options: InspectPdfOptions = {}): Promise<PdfInspection> {
   const pdfjs = await loadPdfjs();
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(bytes),
     standardFontDataUrl,
     // No canvas/DOM in this Node worker process — text extraction doesn't need one.
     isEvalSupported: false,
+    ...(options.password ? { password: options.password } : {}),
   });
 
-  const doc = await loadingTask.promise;
+  let doc;
+  try {
+    doc = await loadingTask.promise;
+  } catch (error) {
+    // pdfjs reports both cases as a PasswordException and tells them apart
+    // by code: 1 = NEED_PASSWORD (none supplied), 2 = INCORRECT_PASSWORD.
+    // Surfaced as two distinct error codes so the UI can prompt for a
+    // password vs. ask for it again — statement-processor.ts stores
+    // `error.message` as the job's errorCode, so these messages ARE the
+    // codes. Verified against a pdfkit-encrypted fixture, not assumed.
+    const err = error as { name?: string; code?: number };
+    if (err?.name === "PasswordException") {
+      throw new Error(err.code === 2 ? "password_incorrect" : "password_required");
+    }
+    throw error;
+  }
   try {
     let text = "";
     const rows: PositionedItem[][] = [];

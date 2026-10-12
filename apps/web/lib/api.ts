@@ -8,7 +8,7 @@ import type {
   TransactionDTO,
   UploadUrlResponseDTO,
 } from "@mpesa/types";
-import type { CategoryCorrectionInput, StatementUploadInput } from "@mpesa/validation";
+import type { CategoryCorrectionInput, StatementProcessingOptions, StatementUploadInput } from "@mpesa/validation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -79,10 +79,24 @@ export const statementsApi = {
     if (!res.ok) throw new ApiError("Upload to storage failed", res.status);
   },
 
-  confirm: (accessToken: string, statementId: string) =>
+  /** `options.password` decrypts a protected statement PDF — the normal
+   * case for the PDF the M-Pesa app emails. It's sent once, used once by
+   * the worker, and never stored (docs/14-statement-upload.md). */
+  confirm: (accessToken: string, statementId: string, options: StatementProcessingOptions = {}) =>
     apiFetch<StatementWithJobDTO>(`/statements/${statementId}/confirm`, {
       method: "POST",
       headers: withAuth(accessToken),
+      body: JSON.stringify(options),
+    }),
+
+  /** Re-run processing on an already-finished statement — used to supply
+   * a password after a `password_required`/`password_incorrect` failure
+   * without re-uploading the file. */
+  reprocess: (accessToken: string, statementId: string, options: StatementProcessingOptions = {}) =>
+    apiFetch<StatementWithJobDTO>(`/statements/${statementId}/reprocess`, {
+      method: "POST",
+      headers: withAuth(accessToken),
+      body: JSON.stringify(options),
     }),
 
   get: (accessToken: string, statementId: string) =>

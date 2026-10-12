@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { StatementDTO, StatementWithJobDTO, TransactionDTO } from "@mpesa/types";
-import { AppShell, Alert, Badge, Button, Card, EmptyState, ProcessingSteps, Spinner, Table, tableStyles } from "@mpesa/ui";
+import { AppShell, Alert, Badge, Button, Card, EmptyState, Input, ProcessingSteps, Spinner, Table, tableStyles } from "@mpesa/ui";
 import { useAuth } from "../../lib/auth-context";
 import { ApiError, statementsApi } from "../../lib/api";
 import { AppNav } from "../../lib/nav";
@@ -26,6 +26,17 @@ function failureMessageFor(errorCode: string | null | undefined): { title: strin
         title: "This looks like a scanned or photographed statement",
         description:
           "We can only read the PDF the M-Pesa app or portal generates itself (Download statement), which has real text inside it — a scan or photo of a printed statement doesn't. Re-uploading this same file won't help; please export a fresh PDF from M-Pesa and upload that instead.",
+      };
+    case "password_required":
+      return {
+        title: "This statement is password-protected",
+        description:
+          "M-Pesa sends the password separately by SMS when it emails you the statement. Enter it below and we'll read the file you already uploaded — no need to upload it again.",
+      };
+    case "password_incorrect":
+      return {
+        title: "That password didn't unlock the statement",
+        description: "Check the SMS M-Pesa sent with this statement and enter the password again below.",
       };
     case "no_transactions_found":
       return {
@@ -56,6 +67,12 @@ export default function UploadPage() {
   const [activeTransactions, setActiveTransactions] = useState<TransactionDTO[] | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Statement PDF password. Held in component state only for as long as
+  // it takes to send it — cleared the moment confirm/reprocess returns.
+  // Never persisted anywhere (docs/14-statement-upload.md).
+  const [password, setPassword] = useState("");
+  const [retryPassword, setRetryPassword] = useState("");
+  const [retrying, setRetrying] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -124,7 +141,8 @@ export default function UploadPage() {
         sizeBytes: file.size,
       });
       await statementsApi.uploadToStorage(uploadUrl, file);
-      const confirmed = await statementsApi.confirm(accessToken, statementId);
+      const confirmed = await statementsApi.confirm(accessToken, statementId, password ? { password } : {});
+      setPassword("");
       setActive(confirmed);
       pollStatement(statementId);
     } catch (err) {
@@ -138,6 +156,30 @@ export default function UploadPage() {
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
+
+  /** For a statement that failed with password_required/password_incorrect:
+   * supply the password and re-run processing on the already-uploaded file
+   * — no re-upload needed. */
+  async function retryWithPassword() {
+    if (!accessToken || !active || !retryPassword) return;
+    setRetrying(true);
+    setUploadError(null);
+    try {
+      const result = await statementsApi.reprocess(accessToken, active.statement.id, { password: retryPassword });
+      setRetryPassword("");
+      setActive(result);
+      setActiveTransactions(null);
+      pollStatement(active.statement.id);
+    } catch (err) {
+      setUploadError(err instanceof ApiError ? err.message : "We couldn't retry this statement. Please try again.");
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  const needsPassword =
+    active?.statement.status === "failed" &&
+    (active.job?.errorCode === "password_required" || active.job?.errorCode === "password_incorrect");
 
   if (loading || !accessToken) {
     return (
@@ -169,6 +211,15 @@ export default function UploadPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <h1 style={{ margin: 0, fontSize: "1.25rem" }}>Upload your M-Pesa statement</h1>
             <p style={{ margin: 0, color: "var(--color-text-secondary)" }}>PDF, up to 25MB.</p>
+            <Input
+              label="Statement password (if the PDF is protected)"
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={uploading}
+              helperText="The M-Pesa app emails a protected PDF and sends its password by SMS. We use it once to read the file and never store it."
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -197,6 +248,30 @@ export default function UploadPage() {
               ) : null}
               {active.statement.status === "failed" ? (
                 <Alert tone="danger" {...failureMessageFor(active.job?.errorCode)} />
+              ) : null}
+              {needsPassword ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void retryWithPassword();
+                  }}
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
+                  <Input
+                    label="Statement password"
+                    type="password"
+                    autoComplete="off"
+                    value={retryPassword}
+                    onChange={(e) => setRetryPassword(e.target.value)}
+                    disabled={retrying}
+                    helperText="From the SMS M-Pesa sent with this statement. Used once, never stored."
+                  />
+                  <div>
+                    <Button type="submit" loading={retrying} disabled={!retryPassword}>
+                      Unlock and try again
+                    </Button>
+                  </div>
+                </form>
               ) : null}
               {active.statement.status === "needs_review" ? (
                 <Alert

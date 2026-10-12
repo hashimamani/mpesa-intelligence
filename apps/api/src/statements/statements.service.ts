@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import type { StatementUploadInput } from "@mpesa/validation";
-import type { StatementWithJobDTO, UploadUrlResponseDTO, StatementDTO, TransactionDTO } from "@mpesa/types";
+import type { StatementProcessingOptions, StatementUploadInput } from "@mpesa/validation";
+import type { StatementStatus, StatementWithJobDTO, UploadUrlResponseDTO, StatementDTO, TransactionDTO } from "@mpesa/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { S3Service } from "../storage/s3.service";
 import { StatementProcessingQueue } from "../queue/statement-processing.queue";
@@ -40,7 +40,11 @@ export class StatementsService {
     return { statementId: statement.id, uploadUrl: url, expiresAt: expiresAt.toISOString() };
   }
 
-  async confirmUpload(owner: OwnerContext, statementId: string): Promise<StatementWithJobDTO> {
+  async confirmUpload(
+    owner: OwnerContext,
+    statementId: string,
+    options: StatementProcessingOptions = {},
+  ): Promise<StatementWithJobDTO> {
     const statement = await this.findOwned(owner, statementId);
 
     if (statement.status !== "pending_upload") {
@@ -74,9 +78,44 @@ export class StatementsService {
       data: { statementId: updated.id, stage: "uploaded" },
     });
 
-    await this.queue.enqueue({ statementId: updated.id, jobId: job.id });
+    // The password rides in the job payload only — never on the Statement
+    // row. See queue/statement-processing.queue.ts.
+    await this.queue.enqueue({ statementId: updated.id, jobId: job.id, password: options.password });
 
     return { statement: toStatementDTO(updated, 0), job: toJobDTO(job) };
+  }
+
+  /**
+   * Re-runs processing for a statement that already finished — the normal
+   * route for "it needed a password" (`password_required`/
+   * `password_incorrect`): the user supplies it here instead of having to
+   * re-upload the same file. Also covers a plain retry after a fix. Only a
+   * finished statement can be reprocessed; one still in flight would
+   * double-run.
+   */
+  async reprocess(
+    owner: OwnerContext,
+    statementId: string,
+    options: StatementProcessingOptions = {},
+  ): Promise<StatementWithJobDTO> {
+    const statement = await this.findOwned(owner, statementId);
+
+    const finished: StatementStatus[] = ["failed", "needs_review", "processed"];
+    if (!finished.includes(statement.status)) {
+      throw new BadRequestException(
+        statement.status === "pending_upload"
+          ? "This statement was never uploaded — upload and confirm it first"
+          : "This statement is still being processed — wait for it to finish before trying again",
+      );
+    }
+
+    const job = await this.prisma.statementProcessingJob.create({
+      data: { statementId: statement.id, stage: "uploaded" },
+    });
+    await this.queue.enqueue({ statementId: statement.id, jobId: job.id, password: options.password });
+
+    const transactionCount = await this.prisma.transaction.count({ where: { statementId: statement.id } });
+    return { statement: toStatementDTO(statement, transactionCount), job: toJobDTO(job) };
   }
 
   async getStatement(owner: OwnerContext, statementId: string): Promise<StatementWithJobDTO> {

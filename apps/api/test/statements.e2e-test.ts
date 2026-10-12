@@ -80,6 +80,142 @@ async function buildValidPdfFixture(): Promise<Buffer> {
   });
 }
 
+const FIXTURE_PASSWORD = "123456";
+
+/** Same single-row fixture as buildValidPdfFixture, but encrypted — the
+ * PDF the M-Pesa app emails is password-protected by default, so this is
+ * the realistic case, not an edge case. */
+async function buildEncryptedPdfFixture(): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 40, userPassword: FIXTURE_PASSWORD, ownerPassword: "owner-test-only" });
+    const chunks: Buffer[] = [];
+    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    doc.fontSize(10).text("M-PESA STATEMENT (synthetic test fixture — not a real account)");
+    doc.text("AA11111111 2026-01-05 10:00:00 Customer Transfer to JOHN DOE 254722000111 Completed 500.00 4500.00");
+    doc.end();
+  });
+}
+
+async function uploadFixture(
+  app: INestApplication,
+  accessToken: string,
+  pdfBytes: Buffer,
+): Promise<string> {
+  const uploadUrlRes = await request(app.getHttpServer())
+    .post("/statements/upload-url")
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({ filename: "statement.pdf", contentType: "application/pdf", sizeBytes: pdfBytes.length });
+  const { statementId, uploadUrl } = uploadUrlRes.body;
+  const putRes = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "application/pdf" }, body: pdfBytes });
+  assert.equal(putRes.status, 200);
+  return statementId as string;
+}
+
+// The e2e suite runs the processor directly rather than through a live
+// BullMQ worker (see the file header), so the password is passed to
+// processStatementJob here exactly the way worker.ts passes job.data.password.
+// The confirm/reprocess endpoints accepting the body (200) is asserted too;
+// the enqueue forwarding between them is a one-line pass-through.
+test("a password-protected statement processes when the password is supplied at confirm", async () => {
+  const { app, prisma, s3 } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+    const statementId = await uploadFixture(app, accessToken, await buildEncryptedPdfFixture());
+
+    const confirmRes = await request(app.getHttpServer())
+      .post(`/statements/${statementId}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ password: FIXTURE_PASSWORD });
+    assert.equal(confirmRes.status, 200);
+
+    await processStatementJob({ prisma, s3 }, confirmRes.body.job.id, { password: FIXTURE_PASSWORD });
+
+    const afterRes = await request(app.getHttpServer())
+      .get(`/statements/${statementId}`)
+      .set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(afterRes.body.statement.status, "processed");
+    assert.equal(afterRes.body.statement.transactionCount, 1);
+    assert.equal(afterRes.body.job.errorCode, null);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a password-protected statement without its password fails as password_required, a wrong one as password_incorrect, and reprocess with the right one succeeds without re-uploading", async () => {
+  const { app, prisma, s3 } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+    const statementId = await uploadFixture(app, accessToken, await buildEncryptedPdfFixture());
+
+    // No password at all.
+    const confirmRes = await request(app.getHttpServer())
+      .post(`/statements/${statementId}/confirm`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send();
+    assert.equal(confirmRes.status, 200);
+    await processStatementJob({ prisma, s3 }, confirmRes.body.job.id);
+    let res = await request(app.getHttpServer()).get(`/statements/${statementId}`).set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(res.body.statement.status, "failed");
+    assert.equal(res.body.job.errorCode, "password_required");
+
+    // Wrong password, via reprocess — same uploaded file, new job.
+    const wrongRes = await request(app.getHttpServer())
+      .post(`/statements/${statementId}/reprocess`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ password: "not-the-password" });
+    assert.equal(wrongRes.status, 200);
+    assert.notEqual(wrongRes.body.job.id, confirmRes.body.job.id);
+    await processStatementJob({ prisma, s3 }, wrongRes.body.job.id, { password: "not-the-password" });
+    res = await request(app.getHttpServer()).get(`/statements/${statementId}`).set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(res.body.statement.status, "failed");
+    assert.equal(res.body.job.errorCode, "password_incorrect");
+
+    // Right password, via reprocess.
+    const rightRes = await request(app.getHttpServer())
+      .post(`/statements/${statementId}/reprocess`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ password: FIXTURE_PASSWORD });
+    assert.equal(rightRes.status, 200);
+    await processStatementJob({ prisma, s3 }, rightRes.body.job.id, { password: FIXTURE_PASSWORD });
+    res = await request(app.getHttpServer()).get(`/statements/${statementId}`).set("Authorization", `Bearer ${accessToken}`);
+    assert.equal(res.body.statement.status, "processed");
+    assert.equal(res.body.statement.transactionCount, 1);
+    assert.equal(res.body.job.errorCode, null);
+
+    // The password must never have been persisted anywhere on the statement
+    // or its jobs — the DB rows are the only durable record.
+    const statementRow = await prisma.statement.findUniqueOrThrow({ where: { id: statementId }, include: { jobs: true } });
+    const serialized = JSON.stringify(statementRow);
+    assert.ok(!serialized.includes(FIXTURE_PASSWORD));
+  } finally {
+    await app.close();
+  }
+});
+
+test("reprocess is refused for a statement that was never uploaded or is still in flight", async () => {
+  const { app } = await createTestApp();
+  try {
+    const { accessToken } = await registerVerifiedUser(app);
+    const pdfBytes = await buildValidPdfFixture();
+    const uploadUrlRes = await request(app.getHttpServer())
+      .post("/statements/upload-url")
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ filename: "statement.pdf", contentType: "application/pdf", sizeBytes: pdfBytes.length });
+    const { statementId } = uploadUrlRes.body;
+
+    // pending_upload: nothing to reprocess yet.
+    const res = await request(app.getHttpServer())
+      .post(`/statements/${statementId}/reprocess`)
+      .set("Authorization", `Bearer ${accessToken}`)
+      .send({ password: "irrelevant" });
+    assert.equal(res.status, 400);
+  } finally {
+    await app.close();
+  }
+});
+
 test("full statement upload flow: request URL -> upload to S3 -> confirm -> process -> readable PDF", async () => {
   const { app, prisma, s3 } = await createTestApp();
   try {

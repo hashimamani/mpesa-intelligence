@@ -7,6 +7,12 @@ export const STATEMENT_PROCESSING_QUEUE = "statement-processing";
 export interface StatementProcessingJobData {
   statementId: string;
   jobId: string;
+  /** Decryption password for a protected statement PDF. Transient by
+   * design: it lives only in this job's payload until the worker has used
+   * it once, is never written to the database or logs, and the job is
+   * removed from Redis on completion/final failure (see enqueue()) so it
+   * doesn't linger. Often a user's national ID number — treat as PII. */
+  password?: string;
 }
 
 /**
@@ -30,6 +36,12 @@ export class StatementProcessingQueue implements OnModuleDestroy {
     await this.queue.add("process", data, {
       attempts: 3,
       backoff: { type: "exponential", delay: 5000 },
+      // The payload can carry a statement password — don't leave finished
+      // jobs (and their data) sitting in Redis. The outcome of every run is
+      // already recorded durably on StatementProcessingJob in Postgres, so
+      // BullMQ's own job history adds nothing here.
+      removeOnComplete: true,
+      removeOnFail: true,
     });
   }
 

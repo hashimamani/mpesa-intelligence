@@ -19,7 +19,9 @@ async function bootstrap() {
   const worker = new Worker<StatementProcessingJobData>(
     STATEMENT_PROCESSING_QUEUE,
     async (job) => {
-      await processStatementJob({ prisma, s3 }, job.data.jobId);
+      // job.data may carry a statement password — handed to the processor
+      // and nothing else. Never log job.data here.
+      await processStatementJob({ prisma, s3 }, job.data.jobId, { password: job.data.password });
     },
     { connection: createQueueRedisConnection(), concurrency: 4 },
   );

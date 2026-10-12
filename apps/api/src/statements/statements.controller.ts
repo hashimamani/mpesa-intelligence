@@ -1,5 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
-import { statementUploadSchema, type StatementUploadInput } from "@mpesa/validation";
+import {
+  statementProcessingOptionsSchema,
+  statementUploadSchema,
+  type StatementProcessingOptions,
+  type StatementUploadInput,
+} from "@mpesa/validation";
 import type { StatementDTO, StatementWithJobDTO, TransactionDTO, UploadUrlResponseDTO } from "@mpesa/types";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -35,8 +40,22 @@ export class StatementsController {
   async confirmUpload(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id") id: string,
+    // Body is optional (the schema defaults to {}); when present it may
+    // carry the statement's PDF password. Pipe scoped to this parameter —
+    // same reasoning as requestUploadUrl above.
+    @Body(new ZodValidationPipe(statementProcessingOptionsSchema)) body: StatementProcessingOptions,
   ): Promise<StatementWithJobDTO> {
-    return this.statements.confirmUpload(ownerOf(user), id);
+    return this.statements.confirmUpload(ownerOf(user), id, body);
+  }
+
+  @Post(":id/reprocess")
+  @HttpCode(200)
+  async reprocess(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(statementProcessingOptionsSchema)) body: StatementProcessingOptions,
+  ): Promise<StatementWithJobDTO> {
+    return this.statements.reprocess(ownerOf(user), id, body);
   }
 
   @Get()
